@@ -10,3 +10,6 @@ env/
 
 # Claude
 .claude/
+
+# Recordings
+recordings/
