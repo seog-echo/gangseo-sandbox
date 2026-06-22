@@ -1,0 +1,147 @@
+{
+  "app": {
+    "window_title": "DBS Hardware-in-the-Loop GUI",
+    "simulation_mode": false,
+    "ipg_reference_root": "C:\\Users\\EchoLabAdmin\\Desktop\\sierra-integer-ipg-recording-tool-main\\sierra-integer-ipg-recording-tool-main",
+    "plot_refresh_interval_ms": 50,
+    "default_test_duration_s": 30
+  },
+  "ni": {
+    "devices": {
+      "ai_device_name": "cDAQ1Mod4",
+      "ao_device_name": "cDAQ1Mod2",
+      "required_products": {
+        "NI-9202": true,
+        "NI-9263": true
+      }
+    },
+    "ai": {
+      "active_channels": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "sample_rate_hz": 10000,
+      "voltage_range": {
+        "min": -10.0,
+        "max": 10.0
+      },
+      "terminal_configuration": "DIFFERENTIAL",
+      "chunk_samples_per_channel": 200
+    },
+    "ao": {
+      "active_channels": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "sample_rate_hz": 100000,
+      "voltage_range": {
+        "min": -10.0,
+        "max": 10.0
+      },
+      "waveforms": {
+        "0": {
+          "type": "sine",
+          "frequency_hz": 20.0,
+          "amplitude_v": 1.0,
+          "offset_v": 0.0
+        },
+        "1": {
+          "type": "sine",
+          "frequency_hz": 10.0,
+          "amplitude_v": 0.5,
+          "offset_v": 0.0
+        },
+        "2": {
+          "type": "simulated_spike_array",
+          "frequency_hz": 5.0,
+          "amplitude_v": 0.25,
+          "offset_v": 0.0
+        },
+        "3": {
+          "type": "sine",
+          "frequency_hz": 2.0,
+          "amplitude_v": 0.1,
+          "offset_v": 0.0
+        }
+      }
+    }
+  },
+  "ipg": {
+    "connection": {
+      "device_number": 21,
+      "scan_timeout_s": 10.0
+    },
+    "recording": {
+      "enabled_channels": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "lead_map": {
+        "1": "Lead 1",
+        "2": "Lead 1",
+        "3": "Lead 2",
+        "4": "Lead 2",
+        "5": "Lead 3",
+        "6": "Lead 3",
+        "7": "Lead 4",
+        "8": "Lead 4",
+        "9": "Floating",
+        "10": "Floating"
+      },
+      "monopolar": false,
+      "display": {
+        "lead": "Lead 1",
+        "positive_electrode": "E1",
+        "negative_electrode": "E2"
+      }
+    },
+    "stimulation": {
+      "enabled_channels": [
+        1,
+        2
+      ],
+      "monopolar": false,
+      "display": {
+        "lead": "Lead 1",
+        "anode": "E1",
+        "cathode": "E2",
+        "waveform": "Biphasic",
+        "amplitude_ma": 2.0,
+        "pulse_width_us": 60,
+        "frequency_hz": 130,
+        "burst_enabled": false,
+        "burst_period_ms": 0,
+        "burst_duty_cycle_percent": 0
+      }
+    }
+  },
+  "execution": {
+    "mode": "Simultaneous Rec & Stim",
+    "allow_partial_bypass": false,
+    "start_sequence": [
+      "ni_ai",
+      "ni_ao",
+      "ipg_start"
+    ]
+  },
+  "logging": {
+    "output_directory": "./runs",
+    "ni_csv_prefix": "ni_ai",
+    "ipg_csv_prefix": "ipg_recording",
+    "metadata_prefix": "run_metadata",
+    "timestamp_format": "%Y%m%d_%H%M%S"
+  },
+  "safety": {
+    "forbid_simultaneous_monopolar_recording_and_stimulation": true
+  }
+}
