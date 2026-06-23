@@ -1,0 +1,14 @@
+# Virtual environments (platform-specific, large, recreate locally)
+.venv/
+.venv-gui/
+venv/
+env/
+
+# Cloned upstream library (re-clone or `pip install pymycobot`)
+pymycobot/
+
+# Python caches / logs
+__pycache__/
+*.pyc
+*.log
+server.log
