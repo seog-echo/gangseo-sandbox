@@ -1,0 +1,3 @@
+# Echopia backend deps. numpy/scipy come from the system env (NODES uses them);
+# create the venv with --system-site-packages so they're inherited.
+websockets>=13.0

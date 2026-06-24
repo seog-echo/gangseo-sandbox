@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Echopia — Phase 0 stream test</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #14110f; color: #e9e2d8; font: 14px/1.4 system-ui, sans-serif; }
+  header { padding: 10px 16px; background: #1f1a16; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; color: #f4b860; letter-spacing: .5px; }
+  .pill { background: #2a231d; padding: 4px 10px; border-radius: 999px; }
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 12px; padding: 12px 16px; }
+  .plots { display: flex; flex-direction: column; gap: 8px; }
+  .plot { background: #1b1612; border: 1px solid #2a231d; border-radius: 8px; padding: 6px 8px; }
+  .plot .lbl { font-size: 12px; color: #b8a98f; margin-bottom: 2px; }
+  canvas { width: 100%; height: 90px; display: block; }
+  .panel { background: #1b1612; border: 1px solid #2a231d; border-radius: 8px; padding: 12px; }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: #f4b860; text-transform: uppercase; letter-spacing: .5px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  button { background: #2a231d; color: #e9e2d8; border: 1px solid #3a302770; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button.active { background: #f4b860; color: #1b1612; font-weight: 600; }
+  .bar { height: 12px; background: #2a231d; border-radius: 6px; overflow: hidden; flex: 1; }
+  .bar > i { display: block; height: 100%; background: #7bd88f; width: 0%; }
+  .bar.amp > i { background: #f4b860; }
+  input[type=range] { flex: 1; }
+  code { color: #8fb8d8; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ECHOPIA</h1>
+  <span class="pill">state: <b id="hState">—</b></span>
+  <span class="pill">stim: <b id="hStim">—</b></span>
+  <span class="pill">IPG <b id="hBatt">—</b></span>
+  <span class="pill">ws: <b id="hWs">connecting…</b></span>
+  <span class="pill">tick: <b id="hRate">—</b>/s</span>
+</header>
+<main>
+  <div class="plots" id="plots"></div>
+  <div>
+    <div class="panel">
+      <h2>Behavior (avatar state)</h2>
+      <div class="row" id="states"></div>
+    </div>
+    <div class="panel">
+      <h2>Stimulation</h2>
+      <div class="row" id="modes"></div>
+      <div class="row" id="akinds"></div>
+      <div class="row">amp <input type="range" id="amp" min="1" max="3" step="0.1" value="2"><b id="ampv">2.0</b> mA</div>
+      <div class="row">applied L <span class="bar amp"><i id="appL"></i></span><b id="appLv">0.0</b></div>
+      <div class="row">applied R <span class="bar amp"><i id="appR"></i></span><b id="appRv">0.0</b></div>
+    </div>
+    <div class="panel">
+      <h2>STN beta biomarker</h2>
+      <div class="row">depth L <span class="bar"><i id="betaL"></i></span></div>
+      <div class="row">depth R <span class="bar"><i id="betaR"></i></span></div>
+    </div>
+  </div>
+</main>
+<script>
+const CH = [["paddleL","Paddle L (M1)"],["paddleR","Paddle R (M1)"],["depthL","Depth L (STN)"],["depthR","Depth R (STN)"]];
+const WIN = 1024 * 3; // ~3 s rolling window per plot
+const buffers = {}, canvases = {};
+const plots = document.getElementById("plots");
+for (const [key, label] of CH) {
+  const d = document.createElement("div"); d.className = "plot";
+  d.innerHTML = `<div class="lbl">${label}</div>`;
+  const c = document.createElement("canvas"); d.appendChild(c); plots.appendChild(d);
+  canvases[key] = c; buffers[key] = new Float32Array(WIN);
+}
+
+// --- control state ---
+const control = { state: "Rest", stim: { mode: "off", adaptive_kind: "state", amplitude_ma: 2.0 } };
+let ws = null;
+function send() { if (ws && ws.readyState === 1) ws.send(JSON.stringify(control)); }
+
+function mkButtons(host, items, get, set) {
+  host.innerHTML = "";
+  for (const [val, lbl] of items) {
+    const b = document.createElement("button");
+    b.textContent = lbl;
+    b.onclick = () => { set(val); render(); send(); };
+    b.dataset.val = val; host.appendChild(b);
+  }
+  function render() { for (const b of host.children) b.classList.toggle("active", b.dataset.val === get()); }
+  render(); host._render = render;
+}
+mkButtons(document.getElementById("states"),
+  [["Rest","Rest"],["Movement","Movement"],["Sleep","Sleep"]],
+  () => control.state, v => control.state = v);
+mkButtons(document.getElementById("modes"),
+  [["off","Off"],["continuous","Continuous"],["adaptive","Adaptive"]],
+  () => control.stim.mode, v => control.stim.mode = v);
+mkButtons(document.getElementById("akinds"),
+  [["state","adaptive: state"],["closed_loop","adaptive: closed-loop"]],
+  () => control.stim.adaptive_kind, v => control.stim.adaptive_kind = v);
+const amp = document.getElementById("amp"), ampv = document.getElementById("ampv");
+amp.oninput = () => { control.stim.amplitude_ma = +amp.value; ampv.textContent = (+amp.value).toFixed(1); send(); };
+
+// --- websocket ---
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/`);
+  ws.onopen = () => { document.getElementById("hWs").textContent = "connected"; send(); };
+  ws.onclose = () => { document.getElementById("hWs").textContent = "closed — retrying"; setTimeout(connect, 1000); };
+  ws.onmessage = (e) => onTick(JSON.parse(e.data));
+}
+connect();
+
+// --- incoming tick ---
+let tickCount = 0, lastSec = performance.now();
+function onTick(m) {
+  for (const [key] of CH) {
+    const chunk = m.channels[key]; const buf = buffers[key]; const n = chunk.length;
+    buf.copyWithin(0, n); buf.set(chunk, WIN - n);
+  }
+  document.getElementById("hState").textContent = m.state;
+  const sa = m.stim_applied;
+  document.getElementById("hStim").textContent =
+    sa.mode === "off" ? "OFF" : sa.mode === "continuous" ? "continuous" : `adaptive (${sa.adaptive_kind})`;
+  document.getElementById("hBatt").textContent = (m.battery * 100).toFixed(1) + "%";
+  setBar("appL", sa.left / 3); document.getElementById("appLv").textContent = sa.left.toFixed(1);
+  setBar("appR", sa.right / 3); document.getElementById("appRv").textContent = sa.right.toFixed(1);
+  setBar("betaL", m.beta.depthL); setBar("betaR", m.beta.depthR);
+  tickCount++;
+  const now = performance.now();
+  if (now - lastSec > 1000) { document.getElementById("hRate").textContent = tickCount; tickCount = 0; lastSec = now; }
+}
+function setBar(id, frac) { document.getElementById(id).style.width = Math.max(0, Math.min(1, frac)) * 100 + "%"; }
+
+// --- draw loop ---
+function draw() {
+  for (const [key] of CH) {
+    const c = canvases[key], dpr = devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const buf = buffers[key];
+    // auto-scale to recent window
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < buf.length; i++) { if (buf[i] < mn) mn = buf[i]; if (buf[i] > mx) mx = buf[i]; }
+    if (!isFinite(mn) || mx - mn < 1e-6) { mn = -1; mx = 1; }
+    const pad = (mx - mn) * 0.1; mn -= pad; mx += pad;
+    ctx.strokeStyle = "#f4b860"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 0; x < w; x++) {
+      const i = Math.floor(x / w * buf.length);
+      const y = h - (buf[i] - mn) / (mx - mn) * h;
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
