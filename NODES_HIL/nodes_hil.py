@@ -35,6 +35,7 @@ from hil_mapping import HilMapping, StimDrive, drive_to_commands, resolve_drive
 from hil_monitor import HilMonitorWindow
 from ni_io import AiConfig, AoConfig, NiHilIO
 from nodes import UnifiedDBSWindow
+from robot_arm import RobotArmController
 from signal_metrics import SignalMeasurement, measure_signal
 
 # Default microvolt -> volt scaling multiplier for the AO output (applied to the
@@ -48,9 +49,16 @@ DEFAULT_AO_OVERSAMPLE = 8
 
 
 class NodesHilWindow(UnifiedDBSWindow):
+    # Emitted from the background robot-probe thread; carries connection result.
+    _robot_probe_done = QtCore.Signal(bool)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("NODES HIL - Unified DBS Simulator (Hardware-in-the-Loop)")
+
+        # Optional robotic arm (myCobot 280) -- entirely isolated; if unavailable
+        # the rest of NODES_HIL is unaffected.
+        self.robot = RobotArmController()
 
         # HIL state.
         self._hil_running = False
@@ -76,6 +84,10 @@ class NodesHilWindow(UnifiedDBSWindow):
 
         self.monitor: HilMonitorWindow | None = None
         self._build_hil_toolbar()
+
+        # Probe the arm in the background (non-blocking) and reflect the result.
+        self._robot_probe_done.connect(self._on_robot_probe_done)
+        self._start_robot_probe()
 
     # ------------------------------------------------------------- HIL toolbar
     def _build_hil_toolbar(self) -> None:
@@ -106,6 +118,77 @@ class NodesHilWindow(UnifiedDBSWindow):
         self.hil_status = QtWidgets.QLabel("  HIL idle.")
         self.hil_status.setStyleSheet("color: #8b93a7; padding-left: 8px;")
         bar.addWidget(self.hil_status)
+
+        # ---- optional robotic arm (myCobot 280) ----
+        bar.addSeparator()
+        self.robot_status = QtWidgets.QLabel("  Robot: ...")
+        self.robot_status.setStyleSheet("color: #8b93a7; padding-left: 4px;")
+        bar.addWidget(self.robot_status)
+
+        self.robot_ip_edit = QtWidgets.QLineEdit(self.robot.ip)
+        self.robot_ip_edit.setFixedWidth(108)
+        self.robot_ip_edit.setToolTip("myCobot address (Pi running Server_280.py)")
+        bar.addWidget(self.robot_ip_edit)
+
+        self.robot_reconnect_btn = QtWidgets.QPushButton("Reconnect Robot")
+        self.robot_reconnect_btn.clicked.connect(self._on_reconnect_robot)
+        bar.addWidget(self.robot_reconnect_btn)
+
+        self.arm_toggle = QtWidgets.QCheckBox("Enable Arm")
+        self.arm_toggle.setEnabled(False)  # until a connection succeeds
+        self.arm_toggle.setToolTip("When on, the arm mirrors the behavioral state. Off releases the servos.")
+        self.arm_toggle.toggled.connect(self._on_arm_toggle)
+        bar.addWidget(self.arm_toggle)
+
+    # -------------------------------------------------------------- robot arm
+    def _start_robot_probe(self) -> None:
+        if not self.robot.available:
+            self.robot_status.setText("  Robot: pymycobot not installed (arm off)")
+            self.arm_toggle.setEnabled(False)
+            return
+        self.robot.ip = self.robot_ip_edit.text().strip() or self.robot.ip
+        self.robot_status.setText("  Robot: connecting...")
+        self.arm_toggle.setEnabled(False)
+        threading.Thread(target=self._robot_probe_worker, daemon=True).start()
+
+    def _robot_probe_worker(self) -> None:
+        ok = False
+        try:
+            ok = self.robot.probe()
+        except Exception:
+            ok = False
+        self._robot_probe_done.emit(bool(ok))
+
+    def _on_robot_probe_done(self, ok: bool) -> None:
+        if ok:
+            self.robot_status.setText(f"  Robot: connected ({self.robot.ip})")
+            self.arm_toggle.setEnabled(True)
+        else:
+            self.robot_status.setText("  Robot: not found (arm optional, ignored)")
+            self.arm_toggle.setEnabled(False)
+            if self.arm_toggle.isChecked():
+                self.arm_toggle.blockSignals(True)
+                self.arm_toggle.setChecked(False)
+                self.arm_toggle.blockSignals(False)
+
+    def _on_reconnect_robot(self) -> None:
+        if self.arm_toggle.isChecked():
+            self.arm_toggle.setChecked(False)  # disables + releases
+        self.robot.shutdown()
+        self._start_robot_probe()
+
+    def _on_arm_toggle(self, checked: bool) -> None:
+        if checked:
+            if self.robot.enable(self.state):
+                self.robot_status.setText(f"  Robot: ARM ON - following '{self.state}'")
+            else:
+                self.arm_toggle.blockSignals(True)
+                self.arm_toggle.setChecked(False)
+                self.arm_toggle.blockSignals(False)
+                self.robot_status.setText("  Robot: enable failed (not connected)")
+        else:
+            self.robot.disable()
+            self.robot_status.setText("  Robot: servos released")
 
     # ------------------------------------------------------------------ devices
     def _on_check_devices(self) -> None:
@@ -378,6 +461,14 @@ class NodesHilWindow(UnifiedDBSWindow):
             ao_peak = float(np.max(np.abs(v))) if v.size else 0.0
         self.monitor.update_readouts(self._last_meas, self._hil_drive, ao_peak, running=True)
 
+    # --------------------------------------------------------- behavioral state
+    def _on_state_change(self, state: str, checked: bool) -> None:
+        # Base updates self.state (and the sim). When the arm is enabled, mirror
+        # the new state onto it immediately (worker reacts within one step).
+        super()._on_state_change(state, checked)
+        if checked and self.robot.enabled:
+            self.robot.set_state(state)
+
     # ------------------------------------------------------------------ cleanup
     def _end_stream(self) -> None:
         # End must not run while the generation thread owns the model.
@@ -393,6 +484,10 @@ class NodesHilWindow(UnifiedDBSWindow):
                 self._gen_thread.join(timeout=2.0)
                 self._gen_thread = None
             self._hil_running = False
+        try:
+            self.robot.shutdown()   # release servos + close connection if open
+        except Exception:
+            pass
         if self.monitor is not None:
             self.monitor.close()
         super().closeEvent(event)

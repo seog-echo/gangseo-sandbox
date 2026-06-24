@@ -7,3 +7,6 @@ pyarrow>=14
 # Hardware-in-the-loop NI-DAQ I/O (NI-9222 AI / NI-9263 AO). Optional: without it,
 # NODES_HIL runs the full loop in simulation mode.
 nidaqmx>=0.9
+# Optional myCobot 280 arm control (network via the Pi's Server_280.py). Without
+# it, the robotic-arm feature is simply disabled; the rest of NODES_HIL is unaffected.
+pymycobot>=4

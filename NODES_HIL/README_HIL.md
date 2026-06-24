@@ -46,6 +46,34 @@ While HIL is running:
 - **Simulated input** controls — visible only when running without hardware;
   set the synthetic input amplitude/frequency to exercise the whole loop.
 
+## Robotic arm (optional — myCobot 280)
+
+NODES_HIL can drive a physical **myCobot 280** so the behavioral state has a
+bodily embodiment. It is **entirely optional and isolated**: if `pymycobot` is
+missing or the arm is unreachable, the feature is disabled and nothing else in
+NODES_HIL is affected.
+
+- On startup, a **background probe** tries to reach the arm over the network
+  (the Pi's `Server_280.py`, default `192.168.137.33:9000`) — non-blocking, with a
+  short timeout. The toolbar **Robot** group shows the result and an editable
+  address + **Reconnect Robot** button.
+- The **Enable Arm** checkbox is greyed out until a connection succeeds.
+- **Enable Arm ON** → powers servos and the arm **mirrors the behavioral state**:
+  - `Rest` → Stand pose `[0, 0, 90, 0, 0, 0]` (held)
+  - `Sleep` → Sleep pose `[0, 0, 90, 0, 90, 0]` (held)
+  - `Movement` → continuous bouncy "head bob" (J3/J4, head kept level)
+  - These are the exact poses/motion from the MYCOBOT tester.
+- Changing the state radio moves the arm **immediately** (a worker thread driven
+  by an event; non-blocking `send_angles`, no `sync_*` stalls).
+- **Enable Arm OFF** → **releases the servos** (note: the arm goes limp and may
+  sag under gravity).
+- The arm follows the state **whenever the toggle is on**, independent of whether
+  a HIL run is active. On app close it releases the servos and disconnects.
+
+Implemented in [`robot_arm.py`](robot_arm.py) (`RobotArmController`). Requires
+`pymycobot` in the venv (in `requirements.txt`) and the Pi's `mycobot-server`
+service running (see [../MYCOBOT/README.md](../MYCOBOT/README.md)).
+
 ## Mapping (configured defaults)
 
 Defined in [`hil_mapping.py`](hil_mapping.py) (`HilMapping`):
@@ -67,6 +95,7 @@ Defined in [`hil_mapping.py`](hil_mapping.py) (`HilMapping`):
 | `hil_mapping.py` | `HilMapping`/`resolve_drive()`/`drive_to_commands()` — measurement → `StimulationCommand`. |
 | `hil_monitor.py` | `HilMonitorWindow` — the traceability plot/readout window (Raw/PSD/Spectrogram). |
 | `hil_check_input.py` | Standalone read-only NI-9222 input check (verify the generator chain). |
+| `robot_arm.py` | `RobotArmController` — optional myCobot 280 arm that mirrors the behavioral state (Rest/Sleep poses, Movement bob). Connection-probed, event-driven worker, fully isolated. |
 | `nodes.py`, `simulator/`, `load_recording.py` | Copy of stock NODES. `nodes.py` has one added line (`self._last_out`) so the HIL subclass can route a chunk to AO without re-running the tick. |
 
 ## Real-time architecture (why the analog output is glitch-free)
