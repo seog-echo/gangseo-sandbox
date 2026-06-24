@@ -14,6 +14,7 @@ Run:
 
 import tkinter as tk
 from tkinter import messagebox
+import math
 import threading
 import time
 
@@ -63,7 +64,7 @@ class RobotTesterGUI:
         # Network fields: Pi IP + TCP port (Server_280.py listens on 9000)
         self.lbl_ip = tk.Label(conn_frame, text="Pi IP:")
         self.ip_entry = tk.Entry(conn_frame, width=24)
-        self.ip_entry.insert(0, "192.168.1.42")
+        self.ip_entry.insert(0, "192.168.137.33")
 
         self.lbl_netport = tk.Label(conn_frame, text="TCP Port:")
         self.netport_entry = tk.Entry(conn_frame, width=24)
@@ -194,41 +195,60 @@ class RobotTesterGUI:
 
     # --- Robot States ---
     def state_stand(self):
+        # J2 straight up (0), J3 at 90 -> balanced, stable upright posture.
+        # J5 = 0 gives the more accurate head/accelerometer orientation.
         self.set_status("Status: Moving to Stand State...")
-        self.mc.sync_send_angles([0, 90, 0, 0, 90, 0], 40)
+        self.mc.sync_send_angles([0, 0, 90, 0, 0, 0], 40)
         self.set_status("Status: Standing State Reached")
 
     def state_sleep(self):
         self.set_status("Status: Moving to Sleep State...")
-        self.mc.sync_send_angles([0, 90, 0, 0, 0, 0], 40)
+        self.mc.sync_send_angles([0, 0, 90, 0, 90, 0], 40)
         self.set_status("Status: Sleep State Reached")
 
     def state_walk(self):
+        # Continuous, bouncy head bob that mimics real gait: the head rises slowly
+        # and drops faster, with smooth (zero-velocity) turnarounds -- not a robotic
+        # up-stop-down-stop. J1,J2 fixed at 0 (arm up); J3 carries the bob and
+        # J4 = -(J3-90) keeps the head level (J3+J4 = 90, J5 = 0 like Stand). We
+        # STREAM many small setpoints to shape the velocity profile. STOP-checked.
+        #
+        # Tunables: d = bob amplitude (deg), T = cycle seconds, rise_frac = fraction
+        # of the cycle spent rising (>0.5 => slower up / faster down), speed, cycles.
+        d = 7
+        T = 1.0
+        rise_frac = 0.62
+        dt = 0.06
+        speed = 90
+        cycles = 8
+
+        base = [0, 0, 90, 0, 0, 0]
         self.set_status("Status: Initializing Walk...")
-        # Get to baseline first
-        self.mc.sync_send_angles([0, 90, 0, 0, 90, 0], 40)
-        time.sleep(1)
+        self.mc.sync_send_angles(base, 40)
+        time.sleep(1.5)
 
-        base_coords = self.mc.get_coords()
-        if not base_coords or len(base_coords) < 6:
-            self.set_status("Status: Error reading coordinates")
-            return
-
-        base_x, base_y, base_z, rx, ry, rz = base_coords
-        z_bounce, y_sway, speed = 20, 10, 60
-        steps = 5
-
-        self.set_status("Status: Walking...")
-        for _ in range(steps):
-            # Bail out immediately if the user hit STOP.
+        steps = max(1, int(round(T / dt)))
+        self.set_status("Status: Walking (bouncy head bob)...")
+        for _ in range(cycles):
             if self.stop_requested.is_set():
                 break
+            for i in range(steps):
+                if self.stop_requested.is_set():
+                    break
+                phase = i / steps  # 0..1 across one up+down cycle
+                if phase < rise_frac:
+                    tau = phase / rise_frac                       # slow rise
+                    h = -math.cos(math.pi * tau)                 # -1 (low) -> +1 (high)
+                else:
+                    tau = (phase - rise_frac) / (1.0 - rise_frac)  # faster fall
+                    h = math.cos(math.pi * tau)                  # +1 (high) -> -1 (low)
+                j3 = 90.0 - d * h
+                j4 = d * h                                       # keeps J3 + J4 = 90
+                self.mc.send_angles([0, 0, j3, j4, 0, 0], speed)
+                time.sleep(dt)
 
-            self.mc.sync_send_coords([base_x, base_y + y_sway, base_z + z_bounce, rx, ry, rz], speed, 1)
-            self.mc.sync_send_coords([base_x, base_y, base_z, rx, ry, rz], speed, 1)
-            self.mc.sync_send_coords([base_x, base_y - y_sway, base_z + z_bounce, rx, ry, rz], speed, 1)
-            self.mc.sync_send_coords([base_x, base_y, base_z, rx, ry, rz], speed, 1)
-
+        self.mc.send_angles(base, 40)
+        time.sleep(1.0)
         if self.stop_requested.is_set():
             self.set_status("Status: Walk Stopped.")
         else:

@@ -2,7 +2,7 @@
 
 A small Tkinter GUI to test-drive a **myCobot 280 Pi** robot arm, plus a serial
 diagnostic script. This README is also a **handoff doc** so the work can be
-continued on another machine (e.g. a Windows laptop) — including by Claude.
+continued on another machine — including by Claude.
 
 ---
 
@@ -17,101 +17,146 @@ There are two ways to control it:
 
 | Mode | Where the GUI runs | Connection | Needs |
 |------|--------------------|------------|-------|
-| **Serial**  | ON the Pi (via VNC/SSH/monitor) | `MyCobot280("/dev/ttyAMA0", 1000000)` | nothing extra |
-| **Network** | On your laptop | `MyCobot280Socket(pi_ip, 9000)` | `Server_280.py` running on the Pi |
+| **Serial**  | ON the Pi (via VNC/SSH/monitor) | `MyCobot("/dev/ttyAMA0", 1000000)` | nothing extra |
+| **Network** | On your laptop | `MyCobot280Socket(pi_ip, 9000)` | `Server_280.py` running on the Pi (auto-starts, see below) |
 
 The GUI ([robot_tester_gui.py](robot_tester_gui.py)) supports **both** via a Serial/Network toggle.
 
 ---
 
+## This robot's specifics (discovered)
+
+- Pi OS: **Ubuntu 20.04**, hostname **`er`**, user **`er`**. Boot FAT is labelled
+  `system-boot` (mounts at `/boot/firmware`); root ext4 is labelled `writable`.
+- On the **Pi**: **pymycobot 3.1.2** — old API (`MyCobot`, *not* `MyCobot280`).
+- On the **laptop**: **pymycobot 4.0.5** (`MyCobot280Socket`) under **Python 3.14** (`py -3.14`).
+- Control is **joint-space only**: Cartesian `send_coords` does **not** execute on this
+  arm's firmware (the sync variant polls forever and freezes the GUI). Use `send_angles`.
+- Laptop Ethernet is an **Intel I226-V**; the laptop feeds the Pi an IP via ICS.
+
+---
+
 ## Files
 
-- **robot_tester_gui.py** — the test GUI. Serial/Network mode toggle; buttons for Stand / Sleep /
-  Walk; STOP and Release Servos. Safe to run anywhere (it only talks to hardware on Connect).
+- **robot_tester_gui.py** — the test GUI. Serial/Network toggle; Stand / Sleep / Walk;
+  STOP and Release Servos. Default Network IP is `192.168.137.33`.
 - **diagnose.py** — SERIAL communication test. Run it **on the Pi** to confirm the arm responds.
 - **.gitignore** — excludes venvs and the cloned `pymycobot` source (recreate locally).
 
 ---
 
-## Continuing on a Windows laptop (current plan)
+## Windows laptop control — WORKING SETUP (verified)
 
-Goal: laptop ↔ robot over an **Ethernet cable**, control the arm from the laptop (Network mode).
+Direct Ethernet cable, laptop → Pi. Steps in order:
 
-### 1. Install Python deps on Windows
-Windows Python includes tkinter already. Just add pymycobot:
+### 1. Laptop Python
+Use global **Python 3.14** (`py -3.14`; has tkinter). Install pymycobot once:
 ```cmd
-pip install pymycobot
+py -3.14 -m pip install pymycobot
 ```
+`py -3.14` sidesteps any activated project venv (which won't have pymycobot).
 
-### 2. Connect the robot to the laptop via Ethernet
-A **direct** cable (no router) means there's no DHCP server, so both ends self-assign a
-link-local address (`169.254.x.x`). Two ways to reach the Pi:
+### 2. Share laptop internet → Ethernet (ICS = DHCP for the Pi)
+A direct cable has no DHCP, so make the laptop the DHCP server:
+- `ncpa.cpl` → right-click **Wi-Fi** → **Properties → Sharing** → check
+  "Allow other network users to connect…", and target **Ethernet**.
+- Ethernet becomes **192.168.137.1** and serves DHCP. The Pi gets **192.168.137.33**
+  (and internet via NAT, which is how we install things on it).
 
-- **Easiest:** plug both the Pi and the laptop into a **router/switch** instead — the Pi gets a
-  normal DHCP IP. Find it from your router's device list.
-- **Direct cable:** install **Bonjour** (ships with iTunes) so mDNS works, then try the Pi's
-  hostname, e.g. `ping er-desktop.local`. Or assign static IPs to both NICs
-  (e.g. laptop `192.168.50.1`, and set the Pi to `192.168.50.2`).
-
-To find the Pi from Windows once it's linked:
-```cmd
-arp -a            REM look for the Pi's MAC/IP on your Ethernet adapter
-ping er-desktop.local
+### 3. If Ethernet shows "Disconnected" despite link lights (Intel I226-V quirk)
+Disable Energy-Efficient Ethernet and reset the NIC (**elevated** PowerShell):
+```powershell
+Set-NetAdapterAdvancedProperty -Name "Ethernet" -DisplayName "Energy Efficient Ethernet" -DisplayValue "Off"
+Restart-NetAdapter -Name "Ethernet"
 ```
+After any robot power-cycle, you may need `Restart-NetAdapter -Name "Ethernet"` again
+(the I226-V often won't re-acquire the link until reset).
 
-### 3. SSH into the Pi (Windows 10+ has built-in `ssh`)
-Default Elephant Robotics login is usually **`er` / `Elephant`**:
-```cmd
-ssh er@<pi-ip>
+### 4. Find the Pi / SSH in
+```powershell
+arp -a | findstr 192.168.137      # Pi MAC starts D8-3A-DD- (Raspberry Pi)
+ssh er@192.168.137.33             # password: mycobot123 (we reset it; see recovery note)
 ```
+A passwordless SSH **key for this laptop** is installed in the Pi's
+`~/.ssh/authorized_keys`, so SSH/scp from this laptop need no password.
 
-### 4. On the Pi: start the network control server
-pymycobot ships demo servers. Find and run the 280 one:
+### 5. The control server auto-starts on the Pi
+`Server_280.py` runs as a **systemd service** (`mycobot-server.service`), bound to
+`0.0.0.0:9000`, started on every boot, restarts on crash. It's a raw TCP↔serial bridge
+from the cloned repo at `~/pymycobot_src` (patched to bind `0.0.0.0`). Manage it:
 ```bash
-find / -name "Server_280.py" 2>/dev/null      # locate it
-python3 /path/to/pymycobot/demo/Server_280.py
+sudo systemctl status mycobot-server
+sudo systemctl restart mycobot-server
 ```
-It prints `ip: <pi-ip> port: 9000` and relays commands to the arm. Leave it running.
-(`Server_280.py` reads the Pi's `wlan0` IP and listens on TCP **9000**; it needs `RPi.GPIO`, so
-it only runs on the Pi. If the Pi is on Ethernet not Wi-Fi, edit the `ifname = "wlan0"` line near
-the bottom to `"eth0"`.)
 
-### 5. On the laptop: run the GUI in Network mode
+### 6. Run the GUI (Network mode)
 ```cmd
-python robot_tester_gui.py
+py -3.14 robot_tester_gui.py
 ```
-- Select **Network (from Mac/laptop)**
-- Enter the Pi's IP, port `9000`
-- Click **Connect**, then test **Stand / Sleep / Walk**
+- Mode **Network**, IP **192.168.137.33** (default), Port **9000** → **Connect**
+- **Stand / Sleep / Walk**; **STOP** and **Release Servos** for safety.
 
-### Pre-flight check (laptop → Pi over network)
+### Pre-flight check (laptop → Pi)
 ```cmd
-python -c "from pymycobot import MyCobot280Socket; mc=MyCobot280Socket('PI_IP',9000); print(mc.get_angles())"
+py -3.14 -c "from pymycobot import MyCobot280Socket; mc=MyCobot280Socket('192.168.137.33',9000); print(mc.get_angles())"
 ```
-Six numbers printed = you're controlling the arm from the laptop. ✅
+Six numbers = you're controlling the arm. ✅
+
+---
+
+## Poses / motions (joint-space, degrees [J1..J6])
+
+- **Stand:** `[0, 0, 90, 0, 0, 0]` — J2 straight up, J3 forearm out at 90; balanced/stable.
+- **Sleep:** `[0, 0, 90, 0, 90, 0]` — same, J5=90.
+- **Walk:** a continuous, bouncy **head bob**. J1/J2 fixed at 0; J3 oscillates a few
+  degrees around 90 with **J4 = -(J3-90)** so the head (accelerometer on top) stays
+  **level**. It's **streamed** as many small setpoints along a slow-rise / fast-fall
+  curve (mimics gait), not two end poses — so it's smooth, not stop-and-go. Tunables at
+  the top of `state_walk`: `d` (amplitude), `T` (cycle time), `rise_frac` (bounce
+  asymmetry), `speed`, `cycles`.
 
 ---
 
 ## Alternative: Serial mode (run the GUI on the Pi itself)
-VNC or SSH (with X forwarding) into the Pi, then:
+Note the GUI imports `MyCobot280`, which the Pi's pymycobot 3.1.2 lacks. On the Pi use the
+`MyCobot` class directly, e.g.:
 ```bash
-python3 robot_tester_gui.py     # Serial mode, /dev/ttyAMA0 @ 1000000
-# or sanity-check first:
-python3 diagnose.py
+python3 -c "from pymycobot import MyCobot; import time; mc=MyCobot('/dev/ttyAMA0',1000000); time.sleep(1); print(mc.get_angles())"
 ```
+
+---
+
+## Recovery: lost the Pi password (how we got back in)
+We had no password and no monitor on the Pi. Recovery, from this laptop:
+1. Got the link up (ICS + the I226-V/EEE fix above) and found the Pi via mDNS (`er.local`).
+2. SSH was reachable but the password was unknown → reset it headlessly via the **microSD**:
+   pulled the card, and on the laptop wrote a one-shot `firstrun.sh` to the boot FAT plus a
+   `systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot
+   systemd.unit=kernel-command-line.target` hook in `cmdline.txt`. On next boot that script
+   (as root) reset the uid-1000 user's password (`mycobot123`), ensured SSH, and installed
+   our SSH public key — then cleaned the hook from `cmdline.txt` and rebooted.
+3. A backup of the original boot partition is at `Desktop\mycobot_boot_backup`.
 
 ---
 
 ## Troubleshooting cheat sheet
 
-- **No serial port appears when plugged into a PC/Mac** → expected. The 280 Pi is not a USB serial
-  device. Use Network mode, or run on the Pi.
-- **`get_angles()` returns `-1`** → no real comms. On the Pi: wrong baud (use 1000000), arm not
-  powered, or firmware issue. Over network: server not running / wrong IP / firewall.
-- **Connects but doesn't move** → check the arm's **power adapter** is on (USB/logic power ≠ servo
-  power), and that servos aren't released.
-- **Can't find the Pi's IP** → router device list; `arp -a`; or `hostname -I` when on the Pi.
-- **Server_280.py errors on `wlan0`** → the Pi is on Ethernet; change `ifname` to `eth0`.
+- **No serial port on a PC/Mac** → expected; the 280 Pi is not a USB serial device. Use
+  Network mode, or run on the Pi.
+- **`get_angles()` returns `-1` / `[]`** → `-1` = no comms (on Pi: baud must be 1000000, arm
+  powered, Atom OK). A bare `[]` is normal *during motion* (serial busy) — not a failure.
+- **Walk freezes the GUI / arm won't do Cartesian moves** → `send_coords`/`sync_send_coords`
+  don't work on this firmware (sync polls forever). Use joint-space `send_angles` only.
+- **GUI "connected party did not respond / timeout"** → almost always the wrong IP in the
+  field; it must be **192.168.137.33** (not the old `192.168.1.42`).
+- **Ethernet "Disconnected" but link lights are on** → Intel I226-V: disable EEE +
+  `Restart-NetAdapter` (see step 3). Needed again after each robot power-cycle.
+- **Pi has no IPv4 / can't reach it on a direct cable** → enable ICS so the laptop hands it
+  `192.168.137.33`; bounce the cable to trigger the Pi's DHCP if needed.
+- **Can connect, can't move** → check servo power (logic power ≠ servo power) and that servos
+  aren't released.
+- **Server not listening after a Pi reboot** → `sudo systemctl status mycobot-server`
+  (should auto-start; `restart` it if not).
 
 ---
 
@@ -119,23 +164,19 @@ python3 diagnose.py
 
 1. Started by trying to control the robot via USB from a **Mac**. The GUI "connected" but the arm
    never moved.
-2. `diagnose.py` showed all reads returning `-1` — i.e. no real two-way communication.
-3. Found the "connected" port `/dev/cu.usbmodemRFCW10MKCPN2` was actually the user's **Samsung
-   phone**, not the robot (confirmed via `ioreg` USB vendor = SAMSUNG).
-4. No USB-serial chip ever enumerated on the Mac for the robot, even at the raw USB level → a
-   physical-layer dead end.
-5. Identified the robot as a **myCobot 280 Pi** (Raspberry Pi version, no M5 base screen). That
-   model is its own computer; USB-to-PC is simply not the control path. The original script
-   defaults (`/dev/ttyAMA0`, `1000000`) were the Pi's settings all along.
-6. Conclusion: control either **on the Pi** (serial) or **from a laptop over the network** (socket
-   via `Server_280.py`). GUI updated to support both.
+2. `diagnose.py` showed all reads returning `-1` — no real two-way communication.
+3. The "connected" port was actually the user's **Samsung phone**, not the robot.
+4. No USB-serial chip ever enumerated for the robot → a physical-layer dead end.
+5. Identified it as a **myCobot 280 Pi** — its own computer; USB-to-PC is not the control path.
+6. Moved to a **Windows laptop**, direct Ethernet. Worked through: I226-V/EEE link issue →
+   ICS to give the Pi an IP → mDNS discovery → SSH password recovery via the microSD →
+   installed `Server_280.py` as a systemd service → drove the arm from the laptop GUI. Found
+   Cartesian moves unusable on this firmware, so all states/Walk use joint-space angles.
 
 ---
 
 ## Local environments (not committed)
-- `.venv/` — full pymycobot dev install (created on the Mac; **no tkinter** because pyenv Python
-  3.13 was built without Tk).
-- `.venv-gui/` — Mac venv from system Python 3.9 that **does** have tkinter; used for offline GUI
-  testing on the Mac. Not needed on Windows (system Python has tkinter; just `pip install pymycobot`).
-- `pymycobot/` — cloned upstream source. Recreate with
+- `pymycobot/` (laptop) and `~/pymycobot_src` (Pi) — cloned upstream source. Recreate with
   `git clone https://github.com/elephantrobotics/pymycobot.git`.
+- Mac venvs (`.venv`, `.venv-gui`) from the original Mac attempt — not needed on Windows.
+</content>
