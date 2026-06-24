@@ -23,21 +23,36 @@ backend and receives a compact per-tick payload. A future hardware path
 
 ## Run
 
+Requires Python 3.10+ and an internet connection (the front-end loads Three.js
+from a CDN). Keep this folder next to the `NODES/` folder (the backend imports
+the NODES simulator from `../NODES`).
+
+**macOS / Linux**
 ```bash
-cd Echopia
-python3 -m venv --system-site-packages .venv   # inherits system numpy/scipy
+cd ECHOPIA
+python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
 .venv/bin/python -m backend.server
 # open http://localhost:8765/
 ```
 
+**Windows** (PowerShell or Command Prompt)
+```bat
+cd ECHOPIA
+py -m venv .venv
+.venv\Scripts\python -m pip install -r backend/requirements.txt
+.venv\Scripts\python -m backend.server
+:: open http://localhost:8765/ in Edge/Chrome/Firefox
+```
+
 The server takes a few seconds to start (NODES builds its signal baselines),
-then serves the front-end and the WebSocket on the same port (8765).
+then serves the front-end and the WebSocket on the same port (8765). Open the
+URL in any modern browser (WebGL required).
 
 ### Engine self-test (no browser)
 
 ```bash
-.venv/bin/python -m backend.engine
+.venv/bin/python -m backend.engine      # Windows: .venv\Scripts\python -m backend.engine
 ```
 
 Prints beta biomarker + applied amplitude across states/modes. Expected:

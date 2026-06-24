@@ -1,3 +1,5 @@
-# Echopia backend deps. numpy/scipy come from the system env (NODES uses them);
-# create the venv with --system-site-packages so they're inherited.
-websockets>=13.0
+# Echopia backend dependencies. Self-contained so it runs on a fresh machine
+# (Windows / macOS / Linux) without relying on system-installed packages.
+numpy>=2.0        # engine uses np.trapezoid (added in NumPy 2.0)
+scipy>=1.10       # scipy.signal.welch for the STN beta biomarker
+websockets>=13.0  # WebSocket + static file server
