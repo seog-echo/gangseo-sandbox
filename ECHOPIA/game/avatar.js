@@ -53,12 +53,16 @@ export class Avatar {
       this.body.add(brow);
     }
 
-    // eyes (face +z) — warm brown, small and friendly
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x6b4f3a, roughness: 0.5 });
+    // eyes (face +z) — warm brown, small and friendly, with a tiny glint
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x6b4f3a, roughness: 0.4 });
+    const glintMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x555555 });
     for (const dx of [-0.11, 0.11]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.038, 10, 10), eyeMat);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 12), eyeMat);
       eye.position.set(dx, 1.61, 0.305);
       this.body.add(eye);
+      const glint = new THREE.Mesh(new THREE.SphereGeometry(0.013, 8, 8), glintMat);
+      glint.position.set(dx + 0.013, 1.625, 0.335);
+      this.body.add(glint);
     }
     // little nose pointing forward
     const nose = new THREE.Mesh(
@@ -75,18 +79,32 @@ export class Avatar {
       this.body.add(cheek);
     }
 
-    // arms + legs as pivot groups (so they can swing from the shoulder/hip)
-    const limb = (color, r, len) => {
+    // arms + legs as pivot groups (so they can swing from the shoulder/hip),
+    // each capped with a hand (skin) or a shoe so the limbs read clearly
+    const limb = (color, r, len, opts = {}) => {
       const pivot = new THREE.Group();
-      const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 8),
+      const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12),
         new THREE.MeshStandardMaterial({ color, roughness: 0.85 }));
       m.position.y = -(len / 2 + r); m.castShadow = true;
-      pivot.add(m); return pivot;
+      pivot.add(m);
+      const bottom = -(len + 2 * r);
+      if (opts.hand) {
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(r * 1.05, 10, 10),
+          new THREE.MeshStandardMaterial({ color: opts.hand, roughness: 0.8 }));
+        hand.position.y = bottom + r * 0.5; hand.castShadow = true; pivot.add(hand);
+      }
+      if (opts.foot) {
+        const foot = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.7, r * 1.1, 4, 8),
+          new THREE.MeshStandardMaterial({ color: opts.foot, roughness: 0.7 }));
+        foot.rotation.x = Math.PI / 2;
+        foot.position.set(0, bottom + r * 0.55, r * 0.95); foot.castShadow = true; pivot.add(foot);
+      }
+      return pivot;
     };
-    this.armL = limb(sweater, 0.1, 0.34); this.armL.position.set(-0.42, 1.28, 0);
-    this.armR = limb(sweater, 0.1, 0.34); this.armR.position.set(0.42, 1.28, 0);
-    this.legL = limb(pants, 0.14, 0.32); this.legL.position.set(-0.17, 0.62, 0);
-    this.legR = limb(pants, 0.14, 0.32); this.legR.position.set(0.17, 0.62, 0);
+    this.armL = limb(sweater, 0.1, 0.34, { hand: skin }); this.armL.position.set(-0.42, 1.28, 0);
+    this.armR = limb(sweater, 0.1, 0.34, { hand: skin }); this.armR.position.set(0.42, 1.28, 0);
+    this.legL = limb(pants, 0.14, 0.32, { foot: 0x6e4630 }); this.legL.position.set(-0.17, 0.62, 0);
+    this.legR = limb(pants, 0.14, 0.32, { foot: 0x6e4630 }); this.legR.position.set(0.17, 0.62, 0);
     this.body.add(this.armL, this.armR, this.legL, this.legR);
 
     // soft shadow blob fallback under feet (reads well in top-down)
@@ -396,16 +414,17 @@ function makeBadgeSprite(text, color) {
 function makePhoneIconTexture(charging) {
   const c = document.createElement("canvas"); c.width = 64; c.height = 64;
   const ctx = c.getContext("2d");
-  const accent = charging ? "#7bd88f" : "#f4b860";
-  ctx.fillStyle = "#1b1612"; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
-  ctx.lineWidth = 4; ctx.strokeStyle = accent; ctx.stroke();
+  const accent = charging ? "#2fe06a" : "#f4b860";   // vivid green vs gold
+  const bg = charging ? "#103a22" : "#1b1612";        // green-tinted bg while charging
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = charging ? 5 : 4; ctx.strokeStyle = accent; ctx.stroke();
   ctx.fillStyle = accent; ctx.fillRect(24, 15, 16, 34);            // phone body
-  ctx.fillStyle = "#1b1612"; ctx.fillRect(26.5, 20, 11, 24);       // screen
+  ctx.fillStyle = charging ? "#0c2616" : "#1b1612"; ctx.fillRect(26.5, 20, 11, 24); // screen
   if (charging) {
-    ctx.fillStyle = "#f4d96a";                                     // lightning bolt
+    ctx.fillStyle = "#fff14d";                                     // bright lightning bolt
     ctx.beginPath();
-    ctx.moveTo(33.5, 21); ctx.lineTo(28.5, 33); ctx.lineTo(31.8, 33);
-    ctx.lineTo(30.5, 43); ctx.lineTo(36, 30.5); ctx.lineTo(32.7, 30.5);
+    ctx.moveTo(34, 20.5); ctx.lineTo(27.5, 33.5); ctx.lineTo(31.6, 33.5);
+    ctx.lineTo(30, 44); ctx.lineTo(37, 29.5); ctx.lineTo(32.6, 29.5);
     ctx.closePath(); ctx.fill();
   } else {
     ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(32, 46, 1.6, 0, Math.PI * 2); ctx.fill();

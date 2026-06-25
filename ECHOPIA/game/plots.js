@@ -85,7 +85,7 @@ export class SignalPanel {
     for (let y = 0; y < bins; y++) {
       const fb = Math.floor((y / bins) * fbinMax);
       const v = clamp01(Math.log10(ps.power[fb] + 1e-9) * 0.28 + 0.9);
-      const [r, gC, b] = ember(v);
+      const [r, gC, b] = spectroColor(v);
       ctx.fillStyle = `rgb(${r},${gC},${b})`;
       ctx.fillRect(oc.width - 1, bins - 1 - y, 1, 1); // low freq at bottom
     }
@@ -165,23 +165,23 @@ function setBar(el, frac) { el.style.width = Math.max(0, Math.min(1, frac)) * 10
 function setUnit(key, txt) { const e = document.querySelector(`[data-u="${key}"]`); if (e) e.textContent = txt; }
 function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
-// Warm "fire" colormap (dark -> deep red -> orange -> amber -> pale), matching
-// Echopia's cozy palette instead of the clinical magma purple — warmer/redder
-// than a brown ember ramp.
-const EMBER_STOPS = [
-  [0.00, [18, 10, 10]],
-  [0.22, [120, 24, 18]],
-  [0.45, [200, 56, 30]],
-  [0.68, [240, 110, 42]],
-  [0.86, [250, 170, 76]],
-  [1.00, [255, 240, 208]],
+// Classic audio-spectrogram palette: dark navy background -> blue -> orange ->
+// yellow for high power (matches the attached reference).
+const SPECTRO_STOPS = [
+  [0.00, [12, 26, 58]],   // dark navy (background / low power)
+  [0.30, [24, 56, 106]],  // blue
+  [0.48, [46, 56, 92]],   // dim blue (transition)
+  [0.58, [150, 78, 42]],  // orange onset
+  [0.74, [232, 126, 38]], // orange
+  [0.90, [248, 182, 78]], // amber
+  [1.00, [255, 238, 196]],// pale yellow (peaks)
 ];
-function ember(t) {
+function spectroColor(t) {
   t = clamp01(t);
   let i = 0;
-  while (i < EMBER_STOPS.length - 1 && t > EMBER_STOPS[i + 1][0]) i++;
-  const [a0, c0] = EMBER_STOPS[i];
-  const [a1, c1] = EMBER_STOPS[Math.min(i + 1, EMBER_STOPS.length - 1)];
+  while (i < SPECTRO_STOPS.length - 1 && t > SPECTRO_STOPS[i + 1][0]) i++;
+  const [a0, c0] = SPECTRO_STOPS[i];
+  const [a1, c1] = SPECTRO_STOPS[Math.min(i + 1, SPECTRO_STOPS.length - 1)];
   const f = a1 === a0 ? 0 : (t - a0) / (a1 - a0);
   return [
     Math.round(c0[0] + (c1[0] - c0[0]) * f),

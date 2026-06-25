@@ -4,13 +4,15 @@
 // set of interactable objects (bed / chairs / sofa) for the game layer.
 
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 // --- cozy palette ---
 const C = {
-  floor: 0xb98a5a, wall: 0xe9dcc6, rug1: 0xc2603f, rug2: 0x6f8f74,
-  wood: 0x8a5a3c, woodDark: 0x6e4630, sheet: 0xf2ead9, pillow: 0xe7d2b6,
-  sofa: 0x7a9a8b, armchair: 0xc08552, lampShade: 0xffd9a0, lampGlow: 0xffca73,
-  leaf: 0x4e8d57, pot: 0xb5654a, tv: 0x20262b, book: [0xb5654a, 0x6f8f74, 0xd8b15a, 0x8c6f9e],
+  floor: 0x9c7a52, wall: 0x4a5a60, rug1: 0xa84f33, rug2: 0x567060,
+  wood: 0x9b7048, woodDark: 0x6e5848, sheet: 0xede3d0, pillow: 0xd9b0a0,
+  sofa: 0x6f93a0, armchair: 0xc9a050, wardrobe: 0x5d7370, charcoal: 0x3b4046,
+  lampShade: 0xffd9a0, lampGlow: 0xffca73,
+  leaf: 0x5a9a5f, pot: 0x9c6a8a, tv: 0x20262b, book: [0xb5654a, 0x6f8f74, 0xd8b15a, 0x8c6f9e],
   highlight: 0xf4b860,
 };
 
@@ -22,7 +24,10 @@ function mat(color, opts = {}) {
 }
 
 function box(w, h, d, color, p = {}) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, p));
+  // rounded edges for a softer "medium-poly" look; radius capped to fit thin boxes
+  const r = Math.min(0.06, Math.min(w, h, d) * 0.45);
+  const geo = r > 0.012 ? new RoundedBoxGeometry(w, h, d, 2, r) : new THREE.BoxGeometry(w, h, d);
+  const m = new THREE.Mesh(geo, mat(color, p));
   m.position.set(p.x ?? 0, p.y ?? h / 2, p.z ?? 0);
   if (p.ry) m.rotation.y = p.ry;
   m.castShadow = p.cast ?? true; m.receiveShadow = true;
@@ -45,8 +50,10 @@ export function buildWorld(scene) {
   const interactables = [];
   const lamps = [];
   const addLamp = (x, y, z, intensity) => {
-    const l = new THREE.PointLight(C.lampGlow, intensity, 8, 1.6);
-    l.position.set(x, y, z); l.userData.base = intensity;
+    // a faint local glow (just enough to read as "on"), not a light source
+    const i = intensity * 0.03;
+    const l = new THREE.PointLight(C.lampGlow, i, 4.0, 2.4);
+    l.position.set(x, y, z); l.userData.base = i;
     root.add(l); lamps.push(l); return l;
   };
 
@@ -103,11 +110,11 @@ export function buildWorld(scene) {
 
   // Nightstand + little lamp
   root.add(box(0.7, 0.6, 0.7, C.wood, { x: -4.3, z: -3.8 }));
-  root.add(cyl(0.18, 0.22, 0.35, C.lampShade, { x: -4.3, y: 0.95, z: -3.8, emissive: C.lampGlow, emi: 0.6 }));
+  root.add(cyl(0.18, 0.22, 0.35, C.lampShade, { x: -4.3, y: 0.95, z: -3.8, emissive: C.lampGlow, emi: 0.07 }));
   addLamp(-4.3, 1.0, -3.8, 0.5);
 
-  // Wardrobe (back wall)
-  root.add(box(1.6, 2.0, 0.7, C.woodDark, { x: -1.6, y: 1.0, z: -4.3 }));
+  // Wardrobe (back wall) — painted, to break up the wood
+  root.add(box(1.6, 2.0, 0.7, C.wardrobe, { x: -1.6, y: 1.0, z: -4.3 }));
 
   // Chair (interactable: sit)
   const chair = makeChair(C.wood);
@@ -170,7 +177,7 @@ export function buildWorld(scene) {
   });
 
   // TV on stand (right wall)
-  root.add(box(2.4, 0.5, 0.6, C.woodDark, { x: 8.2, y: 0.25, z: 0, ry: Math.PI / 2 }));
+  root.add(box(2.4, 0.5, 0.6, C.charcoal, { x: 8.2, y: 0.25, z: 0, ry: Math.PI / 2 }));
   root.add(box(0.12, 1.0, 1.8, C.tv, { x: 8.0, y: 1.0, z: 0, emissive: 0x2b4a66, emi: 0.4 }));
 
   // Bookshelf (back wall) with colorful books
@@ -275,7 +282,7 @@ function makeArmchair(color) {
 
 function makeBookshelf() {
   const g = new THREE.Group();
-  g.add(box(2.6, 2.0, 0.5, 0x6e4630, { y: 1.0 }));
+  g.add(box(2.6, 2.0, 0.5, C.wardrobe, { y: 1.0 }));
   for (let row = 0; row < 3; row++) {
     for (let i = 0; i < 7; i++) {
       const h = 0.4 + Math.sin(i * 1.7 + row) * 0.08;
@@ -305,7 +312,7 @@ function makeFloorLamp(x, z) {
   const g = new THREE.Group();
   g.add(cyl(0.18, 0.22, 0.06, C.woodDark, { y: 0.03 }));
   g.add(cyl(0.04, 0.04, 1.6, C.woodDark, { y: 0.8 }));
-  g.add(cyl(0.28, 0.18, 0.4, C.lampShade, { y: 1.7, emissive: C.lampGlow, emi: 0.7 }));
+  g.add(cyl(0.28, 0.18, 0.4, C.lampShade, { y: 1.7, emissive: C.lampGlow, emi: 0.075 }));
   g.position.set(x, 0, z);
   return g;
 }

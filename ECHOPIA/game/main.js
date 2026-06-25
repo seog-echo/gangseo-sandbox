@@ -2,6 +2,11 @@
 // (right-click to walk, click to interact), and the live link to the backend.
 
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildWorld, HOUSE } from "./world.js";
 import { Avatar } from "./avatar.js";
 import { connectBackend } from "./net.js";
@@ -19,12 +24,20 @@ renderer.setSize(app.clientWidth, app.clientHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic highlights for the cozy glow
+renderer.toneMappingExposure = 0.92;                  // soft, cozy
 app.appendChild(renderer.domElement);
 
 // --- scene + camera ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0e0c0b);
 scene.fog = new THREE.Fog(0x0e0c0b, 28, 46);
+
+// Soft indoor image-based lighting so materials get gentle reflections/fill
+// (no asset files — generated procedurally from RoomEnvironment).
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.26;
 
 const camera = new THREE.PerspectiveCamera(50, app.clientWidth / app.clientHeight, 0.1, 100);
 const CAM_BASE = new THREE.Vector3(0, 17, 12.5);
@@ -36,9 +49,27 @@ function placeCamera() {
 }
 placeCamera();
 
-// --- lighting (warm, cozy) ---
-scene.add(new THREE.HemisphereLight(0xfff0dd, 0x3a2a1e, 0.55));
-const key = new THREE.DirectionalLight(0xffe7c2, 1.0);
+// --- post-processing: subtle bloom on lamps/screens/LEDs + filmic output ---
+const dpr = Math.min(devicePixelRatio, 2);
+const rt = new THREE.WebGLRenderTarget(app.clientWidth * dpr, app.clientHeight * dpr, {
+  type: THREE.HalfFloatType, samples: 4, // MSAA, since the composer bypasses the canvas AA
+});
+const composer = new EffectComposer(renderer, rt);
+composer.setPixelRatio(dpr);
+composer.setSize(app.clientWidth, app.clientHeight);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(app.clientWidth, app.clientHeight),
+  0.35, // strength
+  0.5,  // radius
+  1.0   // threshold — only true HDR highlights (lamps/LED/screens) glow, not walls
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// --- lighting (soft warm fill; lamps are just gentle accents) ---
+scene.add(new THREE.HemisphereLight(0xffe8c8, 0x2a2620, 0.42));
+const key = new THREE.DirectionalLight(0xffe2b0, 0.8);
 key.position.set(6, 16, 8);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
@@ -56,7 +87,7 @@ const avatar = new Avatar(scene);
 const ringGeo = new THREE.RingGeometry(0.7, 0.92, 28);
 for (const it of world.interactables) {
   const ring = new THREE.Mesh(ringGeo,
-    new THREE.MeshBasicMaterial({ color: 0xf4b860, transparent: true, opacity: 0.0, side: THREE.DoubleSide }));
+    new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.0, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(it.seat.x, 0.03, it.seat.z);
   scene.add(ring);
@@ -240,6 +271,8 @@ addEventListener("resize", () => {
   camera.aspect = app.clientWidth / app.clientHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(app.clientWidth, app.clientHeight);
+  composer.setSize(app.clientWidth, app.clientHeight);
+  bloom.setSize(app.clientWidth, app.clientHeight);
 });
 
 // --- loop ---
@@ -254,7 +287,7 @@ function animate() {
   // highlight rings pulse when in range
   const tt = clock.elapsedTime;
   for (const it of world.interactables) {
-    const target = inRange(it) ? 0.45 + Math.sin(tt * 4) * 0.18 : 0.0;
+    const target = inRange(it) ? 0.7 + Math.sin(tt * 4) * 0.25 : 0.0;
     it.ring.material.opacity += (target - it.ring.material.opacity) * 0.2;
   }
 
@@ -273,7 +306,7 @@ function animate() {
   }
 
   panel.draw();
-  renderer.render(scene, camera);
+  composer.render();
   if (firstFrame) {
     firstFrame = false;
     const ld = document.getElementById("loading");
