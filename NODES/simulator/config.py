@@ -34,11 +34,28 @@ class LeadProfile:
     # broadband RMS. Cortex (paddle/M1) is set higher than depth (STN) so the
     # cortical slow waves dominate, matching NREM physiology.
     sleep_slow_wave_gain: float = 0.42
+    # Within-lead spatial correlation length (mm) for the broadband 1/f floor.
+    # Two contacts separated by ``d`` share floor correlation ~ exp(-d/lambda),
+    # so neighbors look alike in the time domain and divergence grows with
+    # separation (volume conduction). Larger -> stronger monopolar similarity
+    # (and stronger common-mode cancellation in bipolar derivations). This only
+    # shapes the cross-contact correlation; each contact's PSD is unchanged.
+    correlation_length_mm: float = 10.0
 
 
 @dataclass(slots=True)
 class SimulatorConfig:
     fs: int = 1024
+    # Length of one rendered stream block. The model double-buffers blocks and
+    # crossfades at the seam, re-randomizing every block, so the output never
+    # repeats regardless of recording duration (no more fixed-loop replay).
+    # Kept at 600 s so the 1/f floor's infra-slow normalization (and hence every
+    # contact's band power) matches the pre-streaming model exactly; the floor's
+    # variance below ~1/T Hz scales as sqrt(T), so a shorter block would shift
+    # visible-band power. Each block is an independent realization regardless.
+    block_duration_s: float = 600.0
+    crossfade_s: float = 1.0
+    # Retained for compatibility; no longer the stream period (see block_*).
     baseline_duration_s: int = 600
     noise_uv: float = 0.8
     jitter_ou_tau_s: float = 0.35
@@ -207,6 +224,7 @@ def default_config() -> SimulatorConfig:
             beta_suppression_end_ma=1.8,
             beta_suppression_strength=0.72,
             sleep_slow_wave_gain=0.30,
+            correlation_length_mm=18.0,
         ),
         ("right", "depth"): LeadProfile(
             name="Right Depth LFP (STN)",
@@ -230,6 +248,7 @@ def default_config() -> SimulatorConfig:
             beta_suppression_end_ma=1.8,
             beta_suppression_strength=0.75,
             sleep_slow_wave_gain=0.30,
+            correlation_length_mm=18.0,
         ),
         ("left", "paddle"): LeadProfile(
             name="Left Cortex ECoG (Paddle)",
@@ -253,6 +272,7 @@ def default_config() -> SimulatorConfig:
             beta_suppression_end_ma=1.8,
             beta_suppression_strength=0.60,
             sleep_slow_wave_gain=0.60,
+            correlation_length_mm=28.0,
         ),
         ("right", "paddle"): LeadProfile(
             name="Right Cortex ECoG (Paddle)",
@@ -276,6 +296,7 @@ def default_config() -> SimulatorConfig:
             beta_suppression_end_ma=1.8,
             beta_suppression_strength=0.62,
             sleep_slow_wave_gain=0.60,
+            correlation_length_mm=28.0,
         ),
     }
 

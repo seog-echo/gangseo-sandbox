@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.linalg import cholesky
 from scipy.signal import butter, sosfiltfilt
 
 from .config import LeadGeometry, LeadProfile
-from .geometry import distance_to_hotspots, spatial_weight
+from .geometry import distance_to_hotspots, euclidean_distance, spatial_weight
 
 
 @dataclass(slots=True)
@@ -32,6 +33,25 @@ class ContactBaseline:
     beta_amp: float               # RMS of beta_peak (to scale the shared beta)
     gamma_amp: float              # RMS of gamma_activity (to scale the shared gamma)
     gradient: float               # 0.6..1.0 across-contact weight for shared injection
+
+
+@dataclass(slots=True)
+class ContactStatic:
+    """Time-invariant per-contact parameters.
+
+    These are derived once from geometry + a fixed per-contact RNG draw and stay
+    constant across stream blocks, so only the *waveforms* (phases/noise) are
+    re-randomized when a new block is rendered — the band amplitudes, hotspot
+    weighting, and bipolar gradient never drift.
+    """
+
+    rms_scale: float        # broadband 1/f RMS (baseline_rms * base_weight)
+    beta_weight: float      # hotspot-dependent beta amplitude weight
+    gamma_weight: float     # gamma amplitude weight
+    slow_amp: float         # Sleep slow-wave amplitude (gain * rms_scale)
+    gradient: float         # 0.6..1.0 shared-injection / bipolar-survival weight
+    beta_low: float         # narrowband beta lower edge (Hz)
+    beta_high: float        # narrowband beta upper edge (Hz)
 
 
 def _color_from_phases(
@@ -139,6 +159,88 @@ def _bandpass(signal: np.ndarray, low_hz: float, high_hz: float, fs: int) -> np.
 
 
 # ---------------------------------------------------------------------------
+# Within-lead spatial correlation.
+# ---------------------------------------------------------------------------
+
+def lead_correlation_cholesky(
+    geometry: LeadGeometry, correlation_length_mm: float
+) -> tuple[tuple[int, ...], np.ndarray]:
+    """Cholesky factor of the within-lead spatial correlation matrix.
+
+    The target correlation between two contacts is ``exp(-d_ij / lambda)`` where
+    ``d_ij`` is their physical separation and ``lambda`` is the correlation
+    length. Mixing independent unit-variance 1/f realizations through ``L``
+    (``Y = L @ X``) yields backgrounds whose pairwise correlation equals that
+    target while every channel keeps unit variance (rows of ``L`` have unit
+    norm, since ``diag(C) == 1``) and an unchanged 1/f^alpha spectrum (a sum of
+    independent identically-colored noises is the same color). So per-contact
+    PSD / band power is preserved exactly — only the cross-contact correlation
+    changes.
+
+    Returns the ordered contact indices and the lower-triangular factor ``L``.
+    """
+    indices = tuple(sorted(geometry.positions_mm.keys()))
+    k = len(indices)
+    lam = max(float(correlation_length_mm), 1e-6)
+    corr = np.empty((k, k), dtype=np.float64)
+    for a, i in enumerate(indices):
+        for b, j in enumerate(indices):
+            d = euclidean_distance(geometry.positions_mm[i], geometry.positions_mm[j])
+            corr[a, b] = np.exp(-d / lam)
+    # Tiny diagonal jitter keeps the matrix positive-definite for Cholesky even
+    # when contacts coincide / lambda is large (does not perturb unit variance).
+    corr += 1e-9 * np.eye(k)
+    factor = cholesky(corr, lower=True)
+    return indices, factor
+
+
+def correlated_backgrounds(
+    factor: np.ndarray,
+    alpha: float,
+    n_samples: int,
+    fs: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Generate ``k`` within-lead-correlated unit-variance 1/f realizations.
+
+    ``factor`` is the Cholesky factor from :func:`lead_correlation_cholesky`.
+    Returns an array of shape ``(k, n_samples)``; row order matches the index
+    order returned alongside ``factor``.
+
+    Construction: each frequency bin gets a **unit phasor** of fixed magnitude
+    ``scale_f = 1/f^(alpha/2)`` (exactly as the per-contact 1/f floor did before
+    — a random-phase surrogate), so every contact's marginal PSD, and hence its
+    band powers, are preserved *exactly* and stably across realizations (no
+    Jensen inflation from a few dominant low-frequency bins).
+
+    Inter-contact correlation is imposed on the *phases*: the unit phasor is
+    ``(u + i v) / |u + i v|`` where ``u`` and ``v`` are spatially-correlated
+    standard normals (``factor @ noise``, ``factor`` = Cholesky of the target
+    correlation ``C``). Correlated phasors -> correlated time-domain signals,
+    monotonic in ``C_ij`` (tuned via the lead's correlation length). At
+    ``C_ij = 1`` phasors coincide (corr -> 1); at ``C_ij = 0`` they are
+    independent (corr -> 0).
+    """
+    k = factor.shape[0]
+    freqs = np.fft.rfftfreq(n_samples, d=1 / fs)
+    n_freq = freqs.size
+    scale = np.ones(n_freq, dtype=np.float64)
+    nz = freqs > 0
+    scale[nz] = 1.0 / np.power(freqs[nz], alpha / 2.0)
+
+    u = factor @ rng.standard_normal((k, n_freq))
+    v = factor @ rng.standard_normal((k, n_freq))
+    phasor = (u + 1j * v) / (np.sqrt(u * u + v * v) + 1e-12)  # unit magnitude, correlated phase
+    spectrum = scale[np.newaxis, :] * phasor
+    spectrum[:, 0] = 0.0  # drop DC (removed by mean-subtraction anyway)
+
+    colored = np.fft.irfft(spectrum, n=n_samples, axis=1)
+    colored -= colored.mean(axis=1, keepdims=True)
+    colored /= colored.std(axis=1, keepdims=True) + 1e-12
+    return colored
+
+
+# ---------------------------------------------------------------------------
 # Shared oscillators (one realization injected into multiple channels to create
 # inter-channel coherence). All are unit-variance; the model scales them to each
 # target channel's band amplitude before mixing.
@@ -184,31 +286,22 @@ def generate_shared_beta(
     return sig.astype(np.float32)
 
 
-def generate_contact_baseline(
+# ---------------------------------------------------------------------------
+# Per-contact baseline: static parameters vs per-block waveform rendering.
+# ---------------------------------------------------------------------------
+
+def contact_static(
     profile: LeadProfile,
     geometry: LeadGeometry,
     contact_index: int,
-    fs: int,
-    duration_s: float,
-    seed: int,
-    sleep_slow_wave_gain: float = 0.42,
-    gamma_center_hz: float = 75.0,
-    gamma_sigma_hz: float = 9.0,
-) -> ContactBaseline:
-    """Synthesize a contact's baseline as a continuous 1/f floor plus additive
-    oscillatory peaks (see ``ContactBaseline``).
+    sleep_slow_wave_gain: float,
+    rng: np.random.Generator,
+) -> ContactStatic:
+    """Compute a contact's time-invariant amplitude/weight parameters.
 
-    The full 1/f ``background`` is the aperiodic floor; ``beta_peak`` and
-    ``gamma_activity`` are added on top and are the only parts the model scales
-    (with state scalars / stim suppression), so reducing a band lowers its peak
-    toward the floor rather than carving a hole below the 1/f.
+    Drawn once (fixed across blocks) so re-rendering a block only re-randomizes
+    waveforms, never the tuned band amplitudes or hotspot weighting.
     """
-    n_samples = int(fs * duration_s)
-    rng = np.random.default_rng(seed)
-
-    colored_rest = _colored_noise(profile.alpha, n_samples, fs, rng)
-    t = np.arange(n_samples, dtype=np.float64) / fs
-
     distance_mm = distance_to_hotspots(geometry.positions_mm, contact_index, geometry.hotspot_indices)
     hotspot_weight = spatial_weight(distance_mm, geometry.hotspot_decay_mm, geometry.baseline_floor)
     base_weight = 0.88 + 0.12 * hotspot_weight
@@ -217,42 +310,73 @@ def generate_contact_baseline(
     ) * (0.97 + 0.06 * rng.random())
     gamma_weight = 0.96 + 0.04 * rng.random()
 
-    # Additive beta peak (carrier + narrowband) that sits ABOVE the 1/f floor.
-    beta_band = _band_limited_noise(profile.beta_low_hz, profile.beta_high_hz, n_samples, fs, rng)
+    rms_scale = profile.baseline_rms_uv * base_weight
+    slow_amp = sleep_slow_wave_gain * rms_scale
+    gradient = 0.6 + 0.4 * float(hotspot_weight)
+
     beta_half_bw = max(1.8, 0.6 * profile.beta_sigma_hz)
     beta_low = max(profile.beta_low_hz, profile.beta_hz - beta_half_bw)
     beta_high = min(profile.beta_high_hz, profile.beta_hz + beta_half_bw)
-    beta_broad = _band_limited_noise(beta_low, beta_high, n_samples, fs, rng)
+
+    return ContactStatic(
+        rms_scale=float(rms_scale),
+        beta_weight=float(beta_weight),
+        gamma_weight=float(gamma_weight),
+        slow_amp=float(slow_amp),
+        gradient=float(gradient),
+        beta_low=float(beta_low),
+        beta_high=float(beta_high),
+    )
+
+
+def render_contact_baseline(
+    profile: LeadProfile,
+    static: ContactStatic,
+    background_unit: np.ndarray,
+    fs: int,
+    rng: np.random.Generator,
+    gamma_center_hz: float = 75.0,
+    gamma_sigma_hz: float = 9.0,
+) -> ContactBaseline:
+    """Render one block of a contact's baseline waveforms.
+
+    ``background_unit`` is the (within-lead-correlated) unit-variance 1/f floor
+    for this contact; it is scaled here by ``static.rms_scale``. The beta peak,
+    gamma bump and slow wave are freshly synthesized from ``rng`` so each block
+    is an independent realization with identical statistics — the basis for a
+    non-repeating stream.
+    """
+    n_samples = background_unit.size
+    t = np.arange(n_samples, dtype=np.float64) / fs
+
+    # Additive beta peak (carrier + narrowband) that sits ABOVE the 1/f floor.
+    beta_band = _band_limited_noise(profile.beta_low_hz, profile.beta_high_hz, n_samples, fs, rng)
+    beta_broad = _band_limited_noise(static.beta_low, static.beta_high, n_samples, fs, rng)
     beta_carrier = np.sin(2 * np.pi * profile.beta_hz * t + rng.uniform(0, 2 * np.pi))
     modulation = np.clip(0.8 + 0.25 * beta_band, 0.3, 1.4)
-    beta_peak = profile.beta_uv * beta_weight * modulation * (0.7 * beta_carrier + 0.6 * beta_broad)
+    beta_peak = profile.beta_uv * static.beta_weight * modulation * (0.7 * beta_carrier + 0.6 * beta_broad)
 
     # Additive finely-tuned gamma BUMP (smooth Gaussian-shaped peak) above the
     # 1/f floor — scaling it raises/lowers a hump that blends into the floor at
     # the edges, rather than shifting a flat shelf as a block.
     gamma_bump = _spectral_bump(gamma_center_hz, gamma_sigma_hz, n_samples, fs, rng)
-    gamma_activity = profile.gamma_activity_uv * gamma_weight * gamma_bump
+    gamma_activity = profile.gamma_activity_uv * static.gamma_weight * gamma_bump
 
-    rms_scale = profile.baseline_rms_uv * base_weight
     # Full, continuous 1/f floor — never scaled by state or stim.
-    background = colored_rest * rms_scale
+    background = background_unit * static.rms_scale
 
     # Independent slow wave (unit variance; scaled by slow_amp at runtime).
-    sw_rng = np.random.default_rng(seed + 777)
     freqs = np.fft.rfftfreq(n_samples, d=1 / fs)
-    sw_phases = sw_rng.uniform(0, 2 * np.pi, len(freqs))
+    sw_phases = rng.uniform(0, 2 * np.pi, len(freqs))
     slow_indep = _slow_wave_from_phases(freqs, sw_phases, profile.alpha, n_samples)
-    slow_amp = sleep_slow_wave_gain * rms_scale
-
-    gradient = 0.6 + 0.4 * float(hotspot_weight)
 
     return ContactBaseline(
         background=background.astype(np.float32),
         beta_peak=beta_peak.astype(np.float32),
         gamma_activity=gamma_activity.astype(np.float32),
         slow_indep=slow_indep.astype(np.float32),
-        slow_amp=float(slow_amp),
+        slow_amp=float(static.slow_amp),
         beta_amp=float(np.std(beta_peak)),
         gamma_amp=float(np.std(gamma_activity)),
-        gradient=float(gradient),
+        gradient=float(static.gradient),
     )
