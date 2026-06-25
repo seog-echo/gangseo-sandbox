@@ -93,7 +93,7 @@ export function buildWorld(scene) {
   root.add(bed);
   interactables.push({
     name: "Bed", group: bed,
-    approach: { x: -6.2, z: -1.3 }, seat: { x: -6.2, y: 0.95, z: -3.0 },
+    approach: { x: -6.2, z: -1.3 }, seat: { x: -6.2, y: 0.75, z: -3.0 },
     yaw: 0, range: 2.0,
     options: [
       { label: "Lie down", pose: "lie", state: "Rest" },
@@ -115,8 +115,8 @@ export function buildWorld(scene) {
   root.add(chair);
   interactables.push({
     name: "Chair", group: chair,
-    approach: { x: -3.2, z: 1.5 }, seat: { x: -3.2, y: 0.55, z: 2.6 },
-    yaw: 0, range: 1.6, options: [{ label: "Sit", pose: "sit", state: "Rest" }],
+    approach: { x: -3.2, z: 1.5 }, seat: { x: -3.2, y: 0.56, z: 2.5 },
+    yaw: Math.PI, range: 1.6, options: [{ label: "Sit", pose: "sit", state: "Rest" }],
   });
 
   // IPG charger — a wearable headband resting on a small dock (interactable)
@@ -151,13 +151,13 @@ export function buildWorld(scene) {
   root.add(sofa);
   interactables.push({
     name: "Sofa", group: sofa,
-    approach: { x: 5.2, z: -1.7 }, seat: { x: 5.2, y: 0.6, z: -3.0 },
+    approach: { x: 5.2, z: -1.7 }, seat: { x: 5.2, y: 0.72, z: -2.85 },
     yaw: 0, range: 1.8, options: [{ label: "Sit", pose: "sit", state: "Rest" }],
   });
 
-  // Coffee table (decor)
-  root.add(box(1.8, 0.45, 1.0, C.woodDark, { x: 5.2, y: 0.22, z: -1.2 }));
-  root.add(cyl(0.18, 0.18, 0.18, 0xd8c4a0, { x: 4.8, y: 0.55, z: -1.2 })); // mug
+  // Coffee table (decor) — kept forward of the sofa so there's room to sit
+  root.add(box(1.8, 0.45, 1.0, C.woodDark, { x: 5.2, y: 0.22, z: -0.4 }));
+  root.add(cyl(0.18, 0.18, 0.18, 0xd8c4a0, { x: 4.8, y: 0.55, z: -0.4 })); // mug
 
   // Armchair (interactable: sit)
   const arm = makeArmchair(C.armchair);
@@ -165,7 +165,7 @@ export function buildWorld(scene) {
   root.add(arm);
   interactables.push({
     name: "Armchair", group: arm,
-    approach: { x: 6.1, z: 2.2 }, seat: { x: 7.2, y: 0.6, z: 2.2 },
+    approach: { x: 6.1, z: 2.2 }, seat: { x: 7.05, y: 0.62, z: 2.2 },
     yaw: -Math.PI / 2, range: 1.7, options: [{ label: "Sit", pose: "sit", state: "Rest" }],
   });
 
@@ -208,10 +208,39 @@ export function buildWorld(scene) {
     return best;
   };
 
+  // Solid-furniture footprints (world-space AABBs in x/z) that block walking.
+  // Movement tests these expanded by the avatar's radius, so he stops at the
+  // edge of furniture instead of clipping into it. Interactable seats are also
+  // obstacles — sitting is a special pose that overrides collision, and standing
+  // up pops the avatar back to its (collision-free) approach point.
+  const obstacles = [
+    { x0: -7.7, x1: -4.7, z0: -4.0, z1: -2.0 },    // bed
+    { x0: -4.65, x1: -3.95, z0: -4.15, z1: -3.45 },// nightstand
+    { x0: -2.4, x1: -0.8, z0: -4.65, z1: -3.95 },  // wardrobe
+    { x0: -3.6, x1: -2.8, z0: 2.2, z1: 3.0 },      // chair
+    { x0: -3.31, x1: -2.69, z0: -4.46, z1: -4.04 },// charger dock
+    { x0: -8.5, x1: -7.9, z0: 3.7, z1: 4.3 },      // bedroom plant
+    { x0: -8.55, x1: -8.05, z0: -4.25, z1: -3.75 },// bedroom floor lamp
+    { x0: 3.5, x1: 6.9, z0: -3.85, z1: -2.55 },    // sofa
+    { x0: 4.3, x1: 6.1, z0: -0.9, z1: 0.1 },       // coffee table
+    { x0: 6.8, x1: 8.0, z0: 1.6, z1: 2.8 },        // armchair
+    { x0: 7.9, x1: 8.5, z0: -1.2, z1: 1.2 },       // TV stand
+    { x0: 1.1, x1: 3.7, z0: -4.65, z1: -4.15 },    // bookshelf
+    { x0: 3.5, x1: 4.1, z0: 3.9, z1: 4.5 },        // living plant
+    { x0: 8.05, x1: 8.55, z0: 3.75, z1: 4.25 },    // living floor lamp
+    { x0: 8.0, x1: 8.6, z0: 2.7, z1: 3.3 },        // side table
+  ];
+  const AVATAR_R = 0.35;
+  const blockedByObstacle = (x, z) =>
+    obstacles.some((o) =>
+      x > o.x0 - AVATAR_R && x < o.x1 + AVATAR_R && z > o.z0 - AVATAR_R && z < o.z1 + AVATAR_R);
+  // A point is walkable if it's inside the rooms AND clear of furniture.
+  const free = (x, z) => inUnion(x, z) && !blockedByObstacle(x, z);
+
   // Doorway center, for the FoG trigger in later phases.
   const doorway = { x: 0, z: 0, halfZ: doorHalf };
 
-  return { root, interactables, walkRects, inUnion, clamp, doorway, lamps };
+  return { root, interactables, walkRects, inUnion, free, clamp, doorway, lamps, obstacles };
 }
 
 // --- furniture builders ---

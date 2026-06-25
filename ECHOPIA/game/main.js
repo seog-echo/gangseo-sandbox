@@ -123,6 +123,15 @@ if (q.get("stim")) phone.set({ on: true, mode: q.get("stim"), kind: q.get("kind"
 if (q.get("event") === "fog") { avatar.pos.set(0, 0); setTimeout(() => symptoms._fog(1.0), 1500); }
 if (q.get("event") === "fall") { setTimeout(() => symptoms._fall(), 1500); }
 if (q.get("zoom")) { camZoom = Math.max(0.4, Math.min(1.7, parseFloat(q.get("zoom")))); placeCamera(); }
+if (q.get("cam")) { // debug: ?cam=px,py,pz,lx,ly,lz  (camera pos + lookAt)
+  const a = q.get("cam").split(",").map(Number);
+  camera.position.set(a[0], a[1], a[2]); camera.lookAt(a[3] || 0, a[4] || 0, a[5] || 0); introT = 1;
+}
+if (q.get("pose")) { // e.g. ?pose=Chair:sit  ?pose=Sofa:sit  ?pose=Bed:lie
+  const [name, pose] = q.get("pose").split(":");
+  const it = world.interactables.find((i) => i.name === name);
+  if (it) avatar._applyPose({ pose: pose || "sit", seat: it.seat, yaw: it.yaw, state: "Rest", exit: it.approach });
+}
 if (q.get("charger") === "1") {
   const ch = world.interactables.find((i) => i.name === "IPG charger");
   if (ch) { avatar.setCharger(true); ch.band.visible = false; ch.worn = true; control.charging = true; phone.setCharging(true); }

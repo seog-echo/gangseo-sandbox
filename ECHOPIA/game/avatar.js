@@ -110,8 +110,12 @@ export class Avatar {
     this.zzz.position.set(0.3, 1.9, 0); this.zzz.visible = false;
     this.group.add(this.zzz);
 
-    // floating phone icon (tap to open the patient app)
-    this.phoneIcon = makePhoneIcon();
+    // floating phone icon (tap to open the patient app; turns green with a
+    // lightning bolt while the IPG is charging)
+    this._phoneTexNormal = makePhoneIconTexture(false);
+    this._phoneTexCharging = makePhoneIconTexture(true);
+    this.phoneIcon = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._phoneTexNormal, transparent: true }));
+    this.phoneIcon.name = "phoneIcon";
     this.phoneIcon.position.set(0, 2.6, 0);
     this.phoneIcon.scale.set(0.55, 0.55, 1);
     this.group.add(this.phoneIcon);
@@ -122,12 +126,6 @@ export class Avatar {
     this.headband.visible = false;
     this.body.add(this.headband);
     this._headbandLed = this.headband.getObjectByName("led");
-
-    // charging badge above the head (game-side charging indicator)
-    this.chargeBadge = makeBadgeSprite("⚡", "#7bd88f");
-    this.chargeBadge.position.set(0.62, 2.6, 0); this.chargeBadge.scale.set(0.4, 0.4, 1);
-    this.chargeBadge.visible = false;
-    this.group.add(this.chargeBadge);
 
     // attention alarm above the head (an adverse event needs the phone)
     this.alarmIcon = makeBadgeSprite("!", "#e0552f");
@@ -152,6 +150,10 @@ export class Avatar {
     this.frozen = false;         // freezing of gait
     this.fallen = false;         // mid-fall
     this.fallT = 0;              // fall animation timer
+
+    // pose bookkeeping (sit/lie/sleep)
+    this._poseExit = null;       // approach point to pop back to when standing up
+    this._poseY = 0; this._poseZ = 0; this._poseRotX = 0;
 
     this._sync();
   }
@@ -180,12 +182,18 @@ export class Avatar {
   // Interact: walk to the approach point, then apply the chosen pose.
   goInteract(it, option) {
     this.target = { x: it.approach.x, z: it.approach.z };
-    this.pending = { pose: option.pose, seat: it.seat, yaw: it.yaw, state: option.state };
+    this.pending = {
+      pose: option.pose, seat: it.seat, yaw: it.yaw, state: option.state,
+      exit: { x: it.approach.x, z: it.approach.z },
+    };
     this._exitPose();
     this.mode = "walk";
   }
 
   _exitPose() {
+    // Standing up from a seat: pop back to the (collision-free) approach point
+    // so the avatar never has to walk out from inside the furniture.
+    if (this._poseExit) { this.pos.set(this._poseExit.x, this._poseExit.z); this._poseExit = null; }
     this.body.rotation.set(0, 0, 0);
     this.body.position.set(0, 0, 0);
     this.zzz.visible = false;
@@ -195,15 +203,21 @@ export class Avatar {
     this.mode = p.pose === "sleep" ? "sleep" : p.pose; // sit | lie | sleep
     this.facing = p.yaw;
     this.pos.set(p.seat.x, p.seat.z);
+    this._poseExit = p.exit || null;
     if (p.pose === "sit") {
-      // settle down onto the seat
-      this.body.position.y = Math.max(0, p.seat.y - 0.95);
+      // hips rest on the seat surface; torso upright, legs fold forward
+      this._poseRotX = 0;
+      this._poseY = p.seat.y - 0.62;
+      this._poseZ = 0;
     } else {
-      // lie / sleep: rotate the body horizontal along the bed
-      this.body.rotation.x = -Math.PI / 2;
-      this.body.position.y = p.seat.y - 0.4;
+      // lie / sleep: on the back along the bed, resting on the mattress
+      this._poseRotX = -Math.PI / 2;
+      this._poseY = p.seat.y + 0.35;
+      this._poseZ = 0.8;
       this.zzz.visible = p.pose === "sleep";
     }
+    this.body.rotation.set(this._poseRotX, 0, 0);
+    this.body.position.set(0, this._poseY, this._poseZ);
     this.target = null;
     this.pending = null;
     this._sync();
@@ -228,9 +242,10 @@ export class Avatar {
         const step = Math.min(WALK_SPEED * this.speedScale * dt, dist);
         const ux = dx / dist, uz = dz / dist;
         let nx = this.pos.x + ux * step, nz = this.pos.y + uz * step;
-        if (world.inUnion(nx, nz)) this.pos.set(nx, nz);
-        else if (world.inUnion(nx, this.pos.y)) this.pos.x = nx;
-        else if (world.inUnion(this.pos.x, nz)) this.pos.y = nz;
+        // walls + furniture collision, with wall-sliding on each axis
+        if (world.free(nx, nz)) this.pos.set(nx, nz);
+        else if (world.free(nx, this.pos.y)) this.pos.x = nx;
+        else if (world.free(this.pos.x, nz)) this.pos.y = nz;
         else { this.mode = "idle"; this.target = null; this.pending = null; }
         this.facing = Math.atan2(ux, uz);
       }
@@ -249,6 +264,10 @@ export class Avatar {
     } else if (this.mode === "idle") {
       this.body.position.set(0, Math.sin(this.t * 2) * 0.01, 0);
       this.body.rotation.z = 0;
+    } else {
+      // sit / lie / sleep — hold the pose each frame (tremor overlay adds on top)
+      this.body.position.set(0, this._poseY, this._poseZ);
+      this.body.rotation.set(this._poseRotX, 0, 0);
     }
 
     // rest-tremor overlay (standing or sitting)
@@ -265,9 +284,8 @@ export class Avatar {
 
     if (this.zzz.visible) this.zzz.position.y = 1.9 + Math.sin(this.t * 2) * 0.08;
     if (this.phoneIcon.visible) this.phoneIcon.position.y = 2.6 + Math.sin(this.t * 2.5) * 0.06;
-    if (this.chargeBadge.visible) {
-      this.chargeBadge.position.y = 2.6 + Math.sin(this.t * 4) * 0.05;
-      if (this._headbandLed) this._headbandLed.material.emissiveIntensity = 0.8 + 0.6 * Math.sin(this.t * 5);
+    if (this.headband.visible && this._headbandLed) {
+      this._headbandLed.material.emissiveIntensity = 0.8 + 0.6 * Math.sin(this.t * 5);
     }
     if (this.alarmIcon.visible) {
       this.alarmIcon.position.y = 3.25 + Math.abs(Math.sin(this.t * 6)) * 0.12;
@@ -296,7 +314,9 @@ export class Avatar {
       this.legL.rotation.x = -sw; this.legR.rotation.x = sw; return;
     }
     if (this.mode === "sit") {
-      lerp(this.legL, -1.4); lerp(this.legR, -1.4); lerp(this.armL, 0.15); lerp(this.armR, 0.15); return;
+      // legs nearly horizontal so they rest on the seat and hang off the front
+      // edge instead of dropping into the solid seat base; arms forward on lap
+      lerp(this.legL, -1.45); lerp(this.legR, -1.45); lerp(this.armL, -0.25); lerp(this.armR, -0.25); return;
     }
     // idle / lie / sleep
     for (const L of [this.armL, this.armR, this.legL, this.legR]) lerp(L, 0);
@@ -326,7 +346,9 @@ export class Avatar {
 
   setCharger(on) {
     this.headband.visible = on;
-    this.chargeBadge.visible = on;
+    // show charging on the phone icon itself (green + bolt) instead of a badge
+    this.phoneIcon.material.map = on ? this._phoneTexCharging : this._phoneTexNormal;
+    this.phoneIcon.material.needsUpdate = true;
   }
 
   setAlarm(on) {
@@ -368,18 +390,27 @@ function makeBadgeSprite(text, color) {
   return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
 }
 
-function makePhoneIcon() {
+// Phone-icon texture. Normal = gold phone; charging = green phone with a
+// lightning bolt on the screen (so charging is shown on the icon itself rather
+// than a separate floating badge).
+function makePhoneIconTexture(charging) {
   const c = document.createElement("canvas"); c.width = 64; c.height = 64;
   const ctx = c.getContext("2d");
+  const accent = charging ? "#7bd88f" : "#f4b860";
   ctx.fillStyle = "#1b1612"; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
-  ctx.lineWidth = 4; ctx.strokeStyle = "#f4b860"; ctx.stroke();
-  ctx.fillStyle = "#f4b860"; ctx.fillRect(24, 15, 16, 34);            // phone body
-  ctx.fillStyle = "#1b1612"; ctx.fillRect(26.5, 20, 11, 24);          // screen
-  ctx.fillStyle = "#f4b860"; ctx.beginPath(); ctx.arc(32, 46, 1.6, 0, Math.PI * 2); ctx.fill();
-  const tex = new THREE.CanvasTexture(c);
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-  spr.name = "phoneIcon";
-  return spr;
+  ctx.lineWidth = 4; ctx.strokeStyle = accent; ctx.stroke();
+  ctx.fillStyle = accent; ctx.fillRect(24, 15, 16, 34);            // phone body
+  ctx.fillStyle = "#1b1612"; ctx.fillRect(26.5, 20, 11, 24);       // screen
+  if (charging) {
+    ctx.fillStyle = "#f4d96a";                                     // lightning bolt
+    ctx.beginPath();
+    ctx.moveTo(33.5, 21); ctx.lineTo(28.5, 33); ctx.lineTo(31.8, 33);
+    ctx.lineTo(30.5, 43); ctx.lineTo(36, 30.5); ctx.lineTo(32.7, 30.5);
+    ctx.closePath(); ctx.fill();
+  } else {
+    ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(32, 46, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
+  return new THREE.CanvasTexture(c);
 }
 
 function makeZzzSprite() {
