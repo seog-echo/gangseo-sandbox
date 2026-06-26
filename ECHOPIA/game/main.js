@@ -96,8 +96,9 @@ for (const it of world.interactables) {
 }
 
 // --- backend link + signal panel ---
-const control = { state: "Rest", charging: false, stim: { mode: "off", adaptive_kind: "state", amplitude_ma: 2.0 } };
+const control = { state: "Rest", arm_state: "Rest", charging: false, stim: { mode: "off", adaptive_kind: "state", amplitude_ma: 2.0 }, arm_enabled: false };
 let lastStim = null; // latest applied-stim info from the backend, for protection calc
+let armConnected = false, armEnabled = false; // optional robotic arm
 const panel = new SignalPanel();
 const phone = new Phone({
   onChange: (stim) => { Object.assign(control.stim, stim); net.send(control); },
@@ -122,6 +123,7 @@ function protection() {
 const els = {
   state: document.getElementById("hState"), stim: document.getElementById("hStim"),
   batt: document.getElementById("hBatt"), conn: document.getElementById("hConn"),
+  arm: document.getElementById("hArm"), armState: document.getElementById("hArmState"),
 };
 const net = connectBackend({
   onStatus: (s) => { els.conn.textContent = s; if (s === "connected") net.send(control); },
@@ -135,9 +137,33 @@ const net = connectBackend({
     lastStim = m.stim_applied;
     panel.onTick(m);
     phone.setBattery(m.battery);
+    updateArmPill(m.robot);
   },
 });
 avatar.onState = (s) => { control.state = s; net.send(control); };
+
+// --- optional robotic arm (top-bar pill) ---
+function updateArmPill(rb) {
+  rb = rb || { status: "unavailable", enabled: false };
+  armConnected = rb.status === "connected";
+  armEnabled = !!rb.enabled;                 // backend is authoritative
+  els.armState.textContent =
+    rb.status === "connected" ? (rb.enabled ? "ON" : "off")
+    : rb.status === "connecting" ? "connecting…"
+    : rb.status === "offline" ? "offline (tap)"
+    : "n/a";
+  els.arm.style.opacity = armConnected ? "1" : "0.6";
+}
+els.arm.addEventListener("click", () => {
+  if (armConnected) {
+    control.arm_enabled = !armEnabled;       // optimistic; tick will confirm
+    net.send(control);
+    els.armState.textContent = control.arm_enabled ? "ON" : "off";
+  } else {
+    control.arm_reconnect = true; net.send(control); delete control.arm_reconnect;
+    els.armState.textContent = "connecting…";
+  }
+});
 
 // peaceful background music (opt-in via the top-bar toggle)
 const music = new AmbientMusic();
@@ -283,6 +309,20 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   symptoms.update(dt, { state: avatar.state, mode: avatar.mode, pos: avatar.pos, protection: protection() });
   avatar.update(dt, world);
+
+  // Report the avatar's (symptom-scaled) gait speed so the arm's bob cadence can
+  // track it. Quantized to 0.1 so net.send (deduped) only emits on real change.
+  const w = Math.round(Math.max(0, Math.min(1, avatar.speedScale ?? 1)) * 10) / 10;
+  if (w !== control.walk) { control.walk = w; net.send(control); }
+
+  // Robot arm posture, decoupled from the neural state the engine uses:
+  // FoG/Fall -> hold at Rest (no bob); lying down uses the Sleep posture (same
+  // as sleeping); walking -> bob; idle/sit -> Rest.
+  const ap = (avatar.frozen || avatar.fallen) ? "Rest"
+    : avatar.mode === "walk" ? "Movement"
+    : (avatar.mode === "sleep" || avatar.mode === "lie") ? "Sleep"
+    : "Rest";
+  if (ap !== control.arm_state) { control.arm_state = ap; net.send(control); }
 
   // highlight rings pulse when in range
   const tt = clock.elapsedTime;

@@ -3,3 +3,5 @@
 numpy>=2.0        # engine uses np.trapezoid (added in NumPy 2.0)
 scipy>=1.10       # scipy.signal.welch for the STN beta biomarker
 websockets>=13.0  # WebSocket + static file server
+pymycobot>=4      # OPTIONAL: myCobot 280 arm. Without it, the arm feature is just
+                  # disabled; the rest of Echopia is unaffected.

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import http
 import json
+import os
 from pathlib import Path
 
 from websockets.asyncio.server import serve
@@ -21,6 +22,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 from backend.engine import EchopiaEngine
+from backend.robot_arm import RobotArmController
 
 HOST = "localhost"
 PORT = 8765
@@ -28,6 +30,13 @@ STATIC_DIR = Path(__file__).resolve().parents[1]  # Echopia/
 
 engine = EchopiaEngine(tick_hz=20.0)
 clients: set = set()
+
+# Optional myCobot 280 arm -- entirely isolated; if unreachable, Echopia is
+# unaffected. Address overridable via env (ECHOPIA_ROBOT_IP / ECHOPIA_ROBOT_PORT).
+robot = RobotArmController(
+    ip=os.environ.get("ECHOPIA_ROBOT_IP", "192.168.137.33"),
+    port=int(os.environ.get("ECHOPIA_ROBOT_PORT", "9000")),
+)
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -45,7 +54,9 @@ async def broadcaster() -> None:
     loop = asyncio.get_running_loop()
     next_t = loop.time()
     while True:
-        payload = json.dumps(engine.tick())
+        data = engine.tick()
+        data["robot"] = robot.status_dict()   # optional arm status for the browser
+        payload = json.dumps(data)
         if clients:
             await asyncio.gather(
                 *(c.send(payload) for c in list(clients)),
@@ -65,6 +76,7 @@ async def handler(ws) -> None:
                 continue
             if isinstance(msg, dict):
                 engine.apply_control(msg)
+                robot.handle_control(msg)   # optional arm; no-op if unavailable
     finally:
         clients.discard(ws)
 
@@ -93,9 +105,11 @@ async def serve_static(connection, request):
 
 
 async def main() -> None:
+    robot.start_probe()   # background; never blocks startup
     async with serve(handler, HOST, PORT, process_request=serve_static):
         print(f"Echopia server: http://{HOST}:{PORT}/  (WS on same port)")
         print(f"  engine: fs={engine.fs} Hz, tick={engine.tick_hz} Hz, n={engine.n_samples}")
+        print(f"  robot: optional myCobot at {robot.ip}:{robot.port} ({robot.status})")
         await broadcaster()
 
 
@@ -104,3 +118,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nbye")
+    finally:
+        robot.shutdown()   # release servos + close if connected
