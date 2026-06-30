@@ -1,0 +1,6 @@
+PySide6>=6.7
+pyqtgraph>=0.13
+numpy>=1.26
+nidaqmx>=0.9
+bleak>=0.22
+crcmod>=1.7

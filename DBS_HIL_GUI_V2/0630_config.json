@@ -1,0 +1,440 @@
+{
+  "app": {
+    "window_title": "DBS Hardware-in-the-Loop GUI",
+    "simulation_mode": false,
+    "ipg_reference_root": "ipg_reference",
+    "plot_refresh_interval_ms": 50,
+    "default_test_duration_s": 30
+  },
+  "ni": {
+    "devices": {
+      "ai_device_name": "cDAQ1Mod3",
+      "ao_device_name": "cDAQ1Mod2",
+      "required_products": {
+        "NI-9222": true,
+        "NI-9263": true
+      }
+    },
+    "ai": {
+      "active_channels": [
+        0
+      ],
+      "sample_rate_hz": 250000,
+      "voltage_range": {
+        "min": -10.0,
+        "max": 10.0
+      },
+      "terminal_configuration": "DIFFERENTIAL",
+      "chunk_samples_per_channel": 200,
+      "channel_settings": {
+        "1": {
+          "enabled": true,
+          "min_v": -10.0,
+          "max_v": 10.0
+        },
+        "2": {
+          "enabled": false,
+          "min_v": -10.0,
+          "max_v": 10.0
+        },
+        "3": {
+          "enabled": false,
+          "min_v": -10.0,
+          "max_v": 10.0
+        },
+        "4": {
+          "enabled": false,
+          "min_v": -10.0,
+          "max_v": 10.0
+        }
+      }
+    },
+    "ao": {
+      "active_channels": [
+        0
+      ],
+      "sample_rate_hz": 100000,
+      "voltage_range": {
+        "min": -10.0,
+        "max": 10.0
+      },
+      "waveforms": {
+        "0": {
+          "type": "sine",
+          "frequency_hz": 20.0,
+          "amplitude_v": 0.001,
+          "offset_v": 0.0,
+          "output_mode": "waveform",
+          "on_time_s": 0.0,
+          "off_time_s": 0.0,
+          "replay_file_path": ""
+        },
+        "1": {
+          "type": "sine",
+          "frequency_hz": 10.0,
+          "amplitude_v": 0.5,
+          "offset_v": 0.0,
+          "output_mode": "waveform",
+          "on_time_s": 0.0,
+          "off_time_s": 0.0,
+          "replay_file_path": ""
+        },
+        "2": {
+          "type": "simulated_spike_array",
+          "frequency_hz": 5.0,
+          "amplitude_v": 0.25,
+          "offset_v": 0.0,
+          "output_mode": "waveform",
+          "on_time_s": 0.0,
+          "off_time_s": 0.0,
+          "replay_file_path": ""
+        },
+        "3": {
+          "type": "sine",
+          "frequency_hz": 2.0,
+          "amplitude_v": 0.1,
+          "offset_v": 0.0,
+          "output_mode": "waveform",
+          "on_time_s": 0.0,
+          "off_time_s": 0.0,
+          "replay_file_path": ""
+        }
+      }
+    }
+  },
+  "ipg": {
+    "connection": {
+      "device_number": 18,
+      "scan_timeout_s": 10.0
+    },
+    "recording": {
+      "enabled_channels": [
+        1
+      ],
+      "lead_map": {
+        "1": "Lead 1",
+        "2": "Lead 1",
+        "3": "Lead 2",
+        "4": "Lead 2",
+        "5": "Lead 3",
+        "6": "Lead 3",
+        "7": "Lead 4",
+        "8": "Lead 4",
+        "9": "Floating",
+        "10": "Floating"
+      },
+      "monopolar": false,
+      "display": {
+        "lead": "Lead 1",
+        "positive_electrode": "E1",
+        "negative_electrode": "E2"
+      },
+      "channel_settings": {
+        "1": {
+          "enabled": true,
+          "lead": "Lead 1",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "2": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "3": {
+          "enabled": false,
+          "lead": "Lead 2",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "4": {
+          "enabled": false,
+          "lead": "Lead 2",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "5": {
+          "enabled": false,
+          "lead": "Lead 3",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "6": {
+          "enabled": false,
+          "lead": "Lead 3",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "7": {
+          "enabled": false,
+          "lead": "Lead 4",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "8": {
+          "enabled": false,
+          "lead": "Lead 4",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "9": {
+          "enabled": false,
+          "lead": "Lead 4",
+          "positive_elec": 1,
+          "negative_elec": 2
+        },
+        "10": {
+          "enabled": false,
+          "lead": "Lead 4",
+          "positive_elec": 1,
+          "negative_elec": 2
+        }
+      }
+    },
+    "stimulation": {
+      "enabled_channels": [
+        1
+      ],
+      "monopolar": false,
+      "display": {
+        "lead": "Lead 1",
+        "anode": "E1",
+        "cathode": "E2",
+        "waveform": "Biphasic",
+        "amplitude_ma": 2.0,
+        "pulse_width_us": 60,
+        "frequency_hz": 130,
+        "burst_enabled": false,
+        "burst_period_ms": 0,
+        "burst_duty_cycle_percent": 0
+      },
+      "channel_settings": {
+        "1": {
+          "enabled": true,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "2": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "3": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "4": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "5": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "6": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "7": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        },
+        "8": {
+          "enabled": false,
+          "lead": "Lead 1",
+          "anode": 1,
+          "cathode": 2,
+          "waveform": "square",
+          "amplitude_ma": 2.5,
+          "pulse_width_ms": 0.06,
+          "frequency_hz": 130.0,
+          "ratio": 1.0,
+          "balance_ms": 0.0,
+          "biphasic": true,
+          "burst_on_s": 0.0,
+          "burst_off_s": 0.0,
+          "burst_ramp_up_s": 0.0,
+          "burst_ramp_down_s": 0.0,
+          "burst_type": "global"
+        }
+      }
+    }
+  },
+  "execution": {
+    "mode": "Simultaneous Rec & Stim",
+    "allow_partial_bypass": false,
+    "start_sequence": [
+      "ni_ai",
+      "ni_ao",
+      "ipg_start"
+    ],
+    "bypass_ni": false,
+    "bypass_ipg": false,
+    "auto_ipg_testing": {
+      "version": 2,
+      "enabled": false,
+      "session_name": "auto_ipg_test",
+      "mode": "frequency",
+      "inter_block_delay_s": 1.0,
+      "mapping": {
+        "1": [],
+        "2": [],
+        "3": [],
+        "4": []
+      },
+      "ni_ai_reference": {
+        "enabled": false,
+        "mapping": [
+          {
+            "ni_ai_channel": 1,
+            "ipg_rec_channels": [
+              1
+            ]
+          }
+        ]
+      },
+      "frequency_sweep": {
+        "fixed_amplitude_v": 2.0,
+        "blocks": [
+          {
+            "duration_s": 30.0,
+            "frequency_hz": 10.0,
+            "ao_values": {
+              "1": 10.0,
+              "2": 10.0,
+              "3": 10.0,
+              "4": 10.0
+            }
+          }
+        ]
+      },
+      "amplitude_sweep": {
+        "fixed_frequency_hz": 10.0,
+        "blocks": [
+          {
+            "duration_s": 30.0,
+            "amplitude_v": 2.0,
+            "ao_values": {
+              "1": 2.0,
+              "2": 2.0,
+              "3": 2.0,
+              "4": 2.0
+            }
+          }
+        ]
+      },
+      "analysis": {
+        "voltage_divider_ratio": 1000.0,
+        "trim_edge_seconds": 2.0,
+        "ipg_adc_lsb_uV": 0.6
+      }
+    }
+  },
+  "logging": {
+    "output_directory": "./runs",
+    "ni_csv_prefix": "ni_ai",
+    "ipg_csv_prefix": "ipg_recording",
+    "metadata_prefix": "run_metadata",
+    "timestamp_format": "%Y%m%d_%H%M%S"
+  },
+  "safety": {
+    "forbid_simultaneous_monopolar_recording_and_stimulation": true
+  }
+}
