@@ -131,6 +131,11 @@ class HilMonitorWindow(QtWidgets.QWidget):
         in_box = QtWidgets.QGroupBox("Input - mock stimulation <- NI-9222 (volts)")
         in_l = QtWidgets.QVBoxLayout(in_box)
         self.in_plot = self._make_plot("#fdba74")
+        # Peak-preserving downsampling: at the high AI rate a window is tens of
+        # thousands of samples; draw only what the view needs while keeping narrow
+        # pulses visible (mode="peak" plots each pixel's min/max, so spikes survive).
+        self.in_plot.setDownsampling(auto=True, mode="peak")
+        self.in_plot.setClipToView(True)
         self.in_curve = self.in_plot.plot(pen=pg.mkPen("#fdba74", width=1.3))
         in_l.addWidget(self.in_plot)
         root.addWidget(in_box)
@@ -140,12 +145,13 @@ class HilMonitorWindow(QtWidgets.QWidget):
         grid = QtWidgets.QGridLayout(read_box)
         self.lbl_in_amp = self._readout(grid, 0, 0, "Input amplitude", "0.000 V")
         self.lbl_in_freq = self._readout(grid, 0, 1, "Input frequency", "0.0 Hz")
-        self.lbl_stim_ma = self._readout(grid, 0, 2, "Stim amplitude", "0.00 mA")
-        self.lbl_stim_hz = self._readout(grid, 0, 3, "Stim frequency", "0.0 Hz")
-        self.lbl_ao_v = self._readout(grid, 1, 0, "AO peak out", "0.000 V")
-        self.lbl_target = self._readout(grid, 1, 1, "Stim target", "-")
-        self.lbl_mode = self._readout(grid, 1, 2, "I/O mode", "SIMULATION" if simulation_mode else "HARDWARE")
-        self.lbl_state = self._readout(grid, 1, 3, "Loop", "idle")
+        self.lbl_in_pw = self._readout(grid, 0, 2, "Input pulse width", "-")
+        self.lbl_stim_ma = self._readout(grid, 0, 3, "Stim amplitude", "0.00 mA")
+        self.lbl_stim_hz = self._readout(grid, 1, 0, "Stim frequency", "0.0 Hz")
+        self.lbl_ao_v = self._readout(grid, 1, 1, "AO peak out", "0.000 V")
+        self.lbl_target = self._readout(grid, 1, 2, "Stim target", "-")
+        self.lbl_mode = self._readout(grid, 1, 3, "I/O mode", "SIMULATION" if simulation_mode else "HARDWARE")
+        self.lbl_state = self._readout(grid, 2, 0, "Loop", "idle")
         root.addWidget(read_box)
 
         # ---- simulation-only synthetic input controls ----
@@ -276,6 +282,10 @@ class HilMonitorWindow(QtWidgets.QWidget):
     def update_readouts(self, meas: SignalMeasurement, drive: StimDrive, ao_peak_v: float, running: bool) -> None:
         self.lbl_in_amp.setText(f"{meas.amplitude_v:.3f} V")
         self.lbl_in_freq.setText(f"{meas.frequency_hz:.1f} Hz")
+        if meas.is_pulsatile and meas.pulse_width_s > 0.0:
+            self.lbl_in_pw.setText(f"{meas.pulse_width_s * 1e6:.0f} us")
+        else:
+            self.lbl_in_pw.setText("- (continuous)")
         self.lbl_stim_ma.setText(f"{drive.amplitude_ma:.2f} mA")
         self.lbl_stim_hz.setText(f"{drive.frequency_hz:.1f} Hz")
         self.lbl_ao_v.setText(f"{ao_peak_v:.3f} V")

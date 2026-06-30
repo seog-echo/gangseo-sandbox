@@ -48,11 +48,22 @@ AO_PRODUCT_HINT = "9263"
 class AiConfig:
     device_name: str = ""
     channel: int = 0
-    sample_rate_hz: float = 20000.0
+    # High enough to resolve a ~60 us DBS pulse phase (~15 samples wide). The
+    # NI-9222 supports up to 500 kS/s/ch; 250 kHz leaves CPU headroom.
+    sample_rate_hz: float = 250000.0
     voltage_min: float = -10.0
     voltage_max: float = 10.0
-    window_seconds: float = 0.3            # rolling window kept for measurement
-    chunk_samples: int = 400               # samples per read (~20 ms at 20 kHz)
+    # Short window: still ~25 cycles of a 130 Hz train, but keeps the per-tick FFT
+    # and pulse analysis cheap regardless of the (high) sample rate.
+    window_seconds: float = 0.2            # rolling window kept for measurement
+    chunk_samples: int = 0                 # 0 -> auto (~20 ms of samples) in start()
+
+    def resolved_chunk_samples(self) -> int:
+        """Samples per read. Auto-scales with the rate so the reader does ~50 reads/s
+        (a steady ~20 ms cadence) instead of thousands of tiny reads at high rates."""
+        if self.chunk_samples > 0:
+            return self.chunk_samples
+        return max(200, int(self.sample_rate_hz * 0.02))
 
 
 @dataclass(slots=True)
@@ -252,7 +263,7 @@ class NiHilIO(QtCore.QObject):
         if terminal is not None:
             kwargs["terminal_config"] = terminal
         task.ai_channels.add_ai_voltage_chan(f"{cfg.device_name}/ai{cfg.channel}", **kwargs)
-        buf = max(cfg.chunk_samples * 10, int(cfg.sample_rate_hz * 2))
+        buf = max(cfg.resolved_chunk_samples() * 10, int(cfg.sample_rate_hz * 2))
         task.timing.cfg_samp_clk_timing(
             rate=cfg.sample_rate_hz,
             sample_mode=AcquisitionType.CONTINUOUS,
@@ -266,9 +277,10 @@ class NiHilIO(QtCore.QObject):
         if self.simulation_mode:
             self._ai_loop_simulated()
             return
+        chunk_samples = cfg.resolved_chunk_samples()
         while not self._stop.is_set():
             try:
-                data = self._ai_task.read(number_of_samples_per_channel=cfg.chunk_samples, timeout=1.0)
+                data = self._ai_task.read(number_of_samples_per_channel=chunk_samples, timeout=1.0)
             except Exception as exc:
                 if self._stop.is_set():
                     break
@@ -279,9 +291,9 @@ class NiHilIO(QtCore.QObject):
 
     def _ai_loop_simulated(self) -> None:
         cfg = self._ai_cfg
-        dt_chunk = cfg.chunk_samples / cfg.sample_rate_hz
+        n = cfg.resolved_chunk_samples()
+        dt_chunk = n / cfg.sample_rate_hz
         while not self._stop.is_set():
-            n = cfg.chunk_samples
             t = self._sim_phase + np.arange(n, dtype=np.float64) / cfg.sample_rate_hz
             chunk = self.sim_amplitude_v * np.sin(2.0 * np.pi * self.sim_frequency_hz * t)
             chunk += 0.01 * np.random.standard_normal(n)  # a little measurement noise

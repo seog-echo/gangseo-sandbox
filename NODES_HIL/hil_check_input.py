@@ -50,7 +50,9 @@ def find_ai_device() -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Read-only NI-9222 input check for the HIL loop.")
     ap.add_argument("--channel", type=int, default=0, help="AI channel index (default 0)")
-    ap.add_argument("--rate", type=float, default=20000.0, help="Sample rate Hz (default 20000)")
+    ap.add_argument("--rate", type=float, default=250000.0,
+                    help="Sample rate Hz (default 250000; raise toward the 9222's 500000 max "
+                         "for finer pulse-width resolution)")
     ap.add_argument("--seconds", type=float, default=1.0, help="Capture duration (default 1.0)")
     ap.add_argument("--device", type=str, default="", help="Force device name (e.g. cDAQ1Mod3)")
     args = ap.parse_args()
@@ -94,9 +96,18 @@ def main() -> int:
     print(f"  min / max       : {np.min(x):+.4f} / {np.max(x):+.4f} V")
     print(f"  peak-to-peak    : {vpp:.4f} V")
     print(f"  amplitude_pk    : {meas.amplitude_v:.4f} V   (-> {meas.amplitude_v:.3f} mA stim at 1 mA/V)")
-    print(f"  dominant freq   : {meas.frequency_hz:.2f} Hz")
+    if meas.is_pulsatile:
+        print(f"  signal type     : pulsatile (narrow-pulse train)")
+        print(f"  repetition rate : {meas.frequency_hz:.2f} Hz")
+        print(f"  pulse width     : {meas.pulse_width_s * 1e6:.1f} us (per phase, at half-height)")
+    else:
+        print(f"  signal type     : continuous")
+        print(f"  dominant freq   : {meas.frequency_hz:.2f} Hz")
     print(f"  RMS             : {meas.rms_v:.4f} V")
     print("-" * 56)
+    if meas.is_pulsatile and meas.pulse_width_s * args.rate < 5.0:
+        print("  NOTE: pulse spans <5 samples at this rate; raise --rate for a reliable")
+        print("        width/peak (e.g. --rate 500000 -> 2 us/sample).")
     if meas.amplitude_v < 0.02:
         print("  WARNING: amplitude is below the stim deadband (0.02 V).")
         print("  NODES would receive ~0 mA -> no beta suppression. Check wiring/channel/output.")

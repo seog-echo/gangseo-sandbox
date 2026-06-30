@@ -47,6 +47,12 @@ DEFAULT_AO_GAIN = 10000.0
 # band. Important because the IPG has no anti-aliasing filter and samples ~1024 Hz.
 DEFAULT_AO_OVERSAMPLE = 8
 
+# NI-9222 analog-input sample rate for the mock-stim measurement. Set high enough
+# to resolve a ~60 us DBS pulse phase (~15 samples wide at 250 kHz). The 9222 tops
+# out at 500 kS/s/ch; raise toward that for finer pulse-width resolution, lower it
+# if you ever see the reader fall behind on a slow host.
+DEFAULT_AI_RATE_HZ = 250000.0
+
 
 class NodesHilWindow(UnifiedDBSWindow):
     # Emitted from the background robot-probe thread; carries connection result.
@@ -208,7 +214,8 @@ class NodesHilWindow(UnifiedDBSWindow):
         hardware_ok = status.ai_present and status.ao_present and status.driver_available
         force_sim = not hardware_ok
 
-        ai_cfg = AiConfig(device_name=status.ai_device_name, channel=0)
+        ai_cfg = AiConfig(device_name=status.ai_device_name, channel=0,
+                          sample_rate_hz=DEFAULT_AI_RATE_HZ)
         oversample = max(1, int(self._ao_oversample))
         ao_cfg = AoConfig(device_name=status.ao_device_name, channel=self.mapping_ao_channel_index(),
                           sample_rate_hz=float(self.fs) * oversample)

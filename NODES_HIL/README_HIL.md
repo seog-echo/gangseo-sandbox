@@ -91,7 +91,7 @@ Defined in [`hil_mapping.py`](hil_mapping.py) (`HilMapping`):
 |------|------|
 | `nodes_hil.py` | Entry point. `NodesHilWindow` subclasses `UnifiedDBSWindow`, adds the HIL toolbar, the generation thread, the display-only tick override, and the monitor. |
 | `ni_io.py` | `NiHilIO` — AI reader thread + AO output (queued or externally-paced); NI-9222/NI-9263 detection; simulation fallback. |
-| `signal_metrics.py` | `measure_signal()` — rolling-window peak amplitude + FFT dominant frequency. |
+| `signal_metrics.py` | `measure_signal()` — glitch-robust peak amplitude, plus pulse-train detection (repetition rate + per-phase pulse width) with FFT dominant-frequency fallback for continuous/sine inputs. |
 | `hil_mapping.py` | `HilMapping`/`resolve_drive()`/`drive_to_commands()` — measurement → `StimulationCommand`. |
 | `hil_monitor.py` | `HilMonitorWindow` — the traceability plot/readout window (Raw/PSD/Spectrogram). |
 | `hil_check_input.py` | Standalone read-only NI-9222 input check (verify the generator chain). |
@@ -156,5 +156,8 @@ until they match.
 - Stim-parameter update: every block (~20 Hz); NODES ramps stim internally.
 - AO: streamed at the NODES-native **1024 Hz**, regeneration disabled (true streaming),
   ~0.5 s DAQ buffer kept full by the generation thread.
-- AI: **20 kHz**, 1 channel, ~0.3 s measurement window.
+- AI: **250 kHz** (NI-9222, max 500 kS/s/ch), 1 channel, ~0.2 s measurement window.
+  Rate set by `DEFAULT_AI_RATE_HZ` in `nodes_hil.py`; chosen to resolve a ~60 us DBS
+  pulse phase (~15 samples wide). Reads auto-chunk to a ~20 ms cadence and the input
+  trace uses peak-preserving downsampling, so the high rate doesn't stall the GUI.
 - GUI redraw: ~100 ms, fully decoupled from AO.
