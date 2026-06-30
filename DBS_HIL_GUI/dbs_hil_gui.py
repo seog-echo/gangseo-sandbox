@@ -1191,7 +1191,10 @@ def ensure_directory(path: Path) -> Path:
 
 
 def repo_root_from_config(config: Dict[str, Any]) -> Path:
-    return Path(config["app"]["ipg_reference_root"])
+    repo_root = Path(config["app"]["ipg_reference_root"])
+    if not repo_root.is_absolute():
+        repo_root = (Path(__file__).parent / repo_root).resolve()
+    return repo_root
 
 
 def ensure_ipg_repo_on_path(repo_root: Path) -> None:

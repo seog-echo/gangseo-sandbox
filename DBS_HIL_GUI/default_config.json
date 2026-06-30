@@ -2,7 +2,7 @@
   "app": {
     "window_title": "DBS Hardware-in-the-Loop GUI",
     "simulation_mode": false,
-    "ipg_reference_root": "C:\\Users\\EchoLabAdmin\\Desktop\\sierra-integer-ipg-recording-tool-main\\sierra-integer-ipg-recording-tool-main",
+    "ipg_reference_root": "ipg_reference",
     "plot_refresh_interval_ms": 50,
     "default_test_duration_s": 30
   },

@@ -13,3 +13,6 @@ env/
 
 # Recordings
 recordings/
+
+# Test-run outputs (NI/IPG recordings, metadata)
+runs/
